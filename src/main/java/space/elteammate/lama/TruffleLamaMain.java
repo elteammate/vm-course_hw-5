@@ -1,47 +1,29 @@
 package space.elteammate.lama;
 
-import com.oracle.truffle.api.frame.MaterializedFrame;
 import com.oracle.truffle.api.source.Source;
 import org.antlr.v4.runtime.CharStreams;
 import space.elteammate.lama.nodes.LamaNode;
+import space.elteammate.lama.nodes.LamaRootNode;
+import space.elteammate.lama.nodes.scope.ModuleNode;
 import space.elteammate.lama.parser.LamaNodeParser;
 
 import java.io.*;
 
 public class TruffleLamaMain {
     static void main(String[] args) throws IOException {
-        assert args.length < 2 : "Mumbler only accepts 1 or 0 files";
         if (args.length == 0) {
-            repl();
-        } else {
-            runFile(args[0]);
+            runFile(new InputStreamReader(System.in), "<stdin>");
+        } else if (args.length == 1) {
+            runFile(new FileReader(args[0]), args[0]);
         }
     }
 
-    private static void repl() throws IOException {
-        Console console = System.console();
-        while (true) {
-            String data = console.readLine("> ");
-            if (data == null) {
-                break;
-            }
-            LamaContext context = new LamaContext();
-            Source source = Source.newBuilder(LamaLanguage.ID, data, "<console>").build();
-
-            LamaNode node = LamaNodeParser.parse(CharStreams.fromReader(source.getReader()));
-
-            Object result = node.execute(context.getGlobalFrame());
-
-            System.out.println(result);
-        }
-    }
-
-    private static void runFile(String filename) throws IOException {
-        Reader reader = new FileReader(filename);
+    private static void runFile(Reader reader, String filename) throws IOException {
+        LamaLanguage lang = new LamaLanguage();
         Source source = Source.newBuilder(LamaLanguage.ID, reader, filename).build();
-        LamaContext context = new LamaContext();
-        LamaNode node = LamaNodeParser.parse(CharStreams.fromReader(source.getReader()));
-        Object result = node.execute(context.getGlobalFrame());
-        System.out.println(result);
+        LamaNodeParser parser = new LamaNodeParser(source);
+        ModuleNode node = (ModuleNode)parser.parse(CharStreams.fromReader(source.getReader()));
+        LamaRootNode root = new LamaRootNode(lang, node);
+        root.getCallTarget().call();
     }
 }

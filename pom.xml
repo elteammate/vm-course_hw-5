@@ -26,6 +26,11 @@
             <artifactId>antlr4-runtime</artifactId>
             <version>4.13.2</version>
         </dependency>
+        <dependency>
+            <groupId>org.graalvm.polyglot</groupId>
+            <artifactId>polyglot</artifactId>
+            <version>${graalvm.version}</version>
+        </dependency>
     </dependencies>
 
     <repositories>

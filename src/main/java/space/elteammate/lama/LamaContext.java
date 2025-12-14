@@ -7,14 +7,12 @@ import com.oracle.truffle.api.frame.VirtualFrame;
 
 public class LamaContext {
     private final FrameDescriptor globalFrameDescriptor;
-
-    private final MaterializedFrame globalFrame;
+    private MaterializedFrame globalFrame = null;
 
     public LamaContext() {
         this.globalFrameDescriptor = new FrameDescriptor();
         VirtualFrame frame = Truffle.getRuntime().createVirtualFrame(null,
                 this.globalFrameDescriptor);
-        globalFrame = frame.materialize();
     }
 
     public FrameDescriptor getGlobalFrameDescriptor() {

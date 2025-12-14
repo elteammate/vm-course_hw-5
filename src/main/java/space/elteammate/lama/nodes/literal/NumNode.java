@@ -1,6 +1,7 @@
-package space.elteammate.lama.nodes;
+package space.elteammate.lama.nodes.literal;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
+import space.elteammate.lama.nodes.LamaNode;
 
 public class NumNode extends LamaNode {
     private final long value;
