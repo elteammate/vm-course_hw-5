@@ -29,7 +29,7 @@ public class LamaException extends AbstractTruffleException {
         }
 
         result.append(": operation");
-        if (location != null) {
+        if (operationName != null) {
             result.append(" \"").append(operationName).append("\"");
         }
 

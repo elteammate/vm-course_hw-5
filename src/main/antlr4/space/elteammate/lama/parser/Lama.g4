@@ -1,19 +1,24 @@
 grammar Lama;
 
-module : expr EOF;
+module : definitions* expr EOF;
+
+definitions
+    : 'var' IDENT ('=' expr)? (',' IDENT ('=' expr)?)* ';' # VarDefinitions
+    ;
 
 primary
     : NUM # Number
-    | IDENT '(' expr (',' expr)* ','? ')' # DirectCall
+    | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
     | IDENT # Lookup
     | '(' expr ')' # Parenthesized
     ;
 
 expr
     : primary (OP primary)* # RawExpr
+    | expr ';' expr # Seq
     ;
 
-IDENT : [A-Za-z_][A-Za-z0-9_]* ;
+IDENT : [A-Za-z_'][A-Za-z0-9_']* ;
 NUM : [0-9]+ ;
 WS : [ \t\r\n]+ -> skip ;
 OP : [+\-*/%<=>!&:]+ ;

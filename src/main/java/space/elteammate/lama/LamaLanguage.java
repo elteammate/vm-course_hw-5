@@ -4,9 +4,12 @@ import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.source.Source;
 import org.antlr.v4.runtime.CharStreams;
-import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.LamaRootNode;
+import space.elteammate.lama.nodes.scope.ModuleNode;
 import space.elteammate.lama.parser.LamaNodeParser;
+import space.elteammate.lama.parser.ParsingException;
+
+import java.io.IOException;
 
 @TruffleLanguage.Registration(
         id = LamaLanguage.ID,
@@ -21,16 +24,23 @@ public class LamaLanguage extends TruffleLanguage<LamaContext> {
 
     @Override
     protected LamaContext createContext(Env env) {
-        return new LamaContext();
+        return new LamaContext(env);
     }
 
     @Override
-    protected CallTarget parse(ParsingRequest request) throws Exception {
-        Source source = request.getSource();
-        LamaNodeParser parser = new LamaNodeParser(source);
-        LamaNode node = parser.parse(CharStreams.fromReader(source.getReader()));
-        // LamaRootNode root = new LamaRootNode(this, node, );
-        // return root.getCallTarget();
-        return null;
+    protected CallTarget parse(ParsingRequest request) {
+        try {
+            Source source = request.getSource();
+            LamaNodeParser parser = new LamaNodeParser(source);
+            ModuleNode node = (ModuleNode) parser.parse(CharStreams.fromReader(source.getReader()));
+            LamaRootNode root = new LamaRootNode(this, node);
+            return root.getCallTarget();
+        } catch (ParsingException | IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    protected void finalizeContext(LamaContext context) {
     }
 }

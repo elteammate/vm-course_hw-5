@@ -6,29 +6,116 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import space.elteammate.lama.LamaException;
-import space.elteammate.lama.nodes.*;
+import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.expr.AddNodeGen;
 import space.elteammate.lama.nodes.expr.MulNodeGen;
 import space.elteammate.lama.nodes.expr.SubNodeGen;
-import space.elteammate.lama.nodes.literal.NumNode;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.BiFunction;
 
 public class LamaNodeParser {
-    private final Map<String, Infix> infixOperators = new HashMap<>();
+    public enum Associativity {
+        LEFT,
+        RIGHT,
+        NONE
+    }
+
+    private static final class Precedence {
+        private int level;
+        private final Associativity associativity;
+        private final Map<String, BiFunction<LamaNode, LamaNode, LamaNode>> operators;
+
+        private Precedence(
+                int level,
+                Associativity associativity
+        ) {
+            this.level = level;
+            this.associativity = associativity;
+            this.operators = new HashMap<>();
+        }
+    }
+
+    private final List<Precedence> precedenceTable = new ArrayList<>();
+    private final Map<String, Precedence> operatorToPrecedence = new HashMap<>();
 
     private Source source;
 
     public LamaNodeParser(Source source) {
         this.source = source;
-        infixOperators.put("+", new Infix("+", 10, 11, AddNodeGen::create));
-        infixOperators.put("-", new Infix("-", 10, 11, SubNodeGen::create));
-        infixOperators.put("*", new Infix("*", 20, 21, MulNodeGen::create));
+
+        precedenceTable.add(new Precedence(0, Associativity.NONE));
+        precedenceTable.add(new Precedence(1, Associativity.NONE));
+        addOperatorAtLevel(0, Associativity.NONE, "lowest", null);
+        addOperatorAtLevel(1, Associativity.NONE, "highest", null);
+
+        addOperatorAbove("lowest", ":", Associativity.RIGHT, (a, b) -> { throw new RuntimeException("not implemented"); });
+
+        addOperatorAbove(":", "!!", Associativity.LEFT, (a, b) -> { throw new RuntimeException("not implemented"); });
+
+        addOperatorAbove("!!", "&&", Associativity.LEFT, (a, b) -> { throw new RuntimeException("not implemented"); });
+
+        addOperatorAbove("&&", "==", Associativity.NONE, (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAtSameLevel("==", "!=", (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAtSameLevel("==", "<=", (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAtSameLevel("==", "<", (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAtSameLevel("==", ">", (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAtSameLevel("==", ">=", (a, b) -> { throw new RuntimeException("not implemented"); });
+
+        addOperatorAbove("==", "+", Associativity.LEFT, AddNodeGen::create);
+        addOperatorAtSameLevel("+", "-", SubNodeGen::create);
+
+        addOperatorAbove("+", "*", Associativity.LEFT, MulNodeGen::create);
+        addOperatorAtSameLevel("*", "/", MulNodeGen::create);
+        addOperatorAtSameLevel("*", "%", MulNodeGen::create);
+
     }
+
+    private void addOperatorAtLevel(int level, Associativity associativity, String op, BiFunction<LamaNode, LamaNode, LamaNode> ctor) {
+        Precedence precedence = new Precedence(level, associativity);
+        precedence.operators.put(op, ctor);
+        precedenceTable.add(precedence);
+        precedenceTable.sort(Comparator.comparingInt(a -> a.level));
+        operatorToPrecedence.put(op, precedence);
+    }
+
+    public void addOperatorAtSameLevel(String existingOp, String newOp, BiFunction<LamaNode, LamaNode, LamaNode> ctor) {
+        Precedence precedence = operatorToPrecedence.get(existingOp);
+        if (precedence == null) {
+            throw new IllegalArgumentException("Operator " + existingOp + " not found");
+        }
+        precedence.operators.put(newOp, ctor);
+        operatorToPrecedence.put(newOp, precedence);
+    }
+
+    public void addOperatorAbove(String existingOp, String newOp, Associativity associativity, BiFunction<LamaNode, LamaNode, LamaNode> ctor) {
+        Precedence existingPrecedence = operatorToPrecedence.get(existingOp);
+        if (existingPrecedence == null) {
+            throw new IllegalArgumentException("Operator " + existingOp + " not found");
+        }
+        int newLevel = existingPrecedence.level + 1;
+        for (Precedence p : precedenceTable) {
+            if (p.level >= newLevel) {
+                p.level++;
+            }
+        }
+        addOperatorAtLevel(newLevel, associativity, newOp, ctor);
+    }
+
+    public void addOperatorBelow(String existingOp, String newOp, Associativity associativity, BiFunction<LamaNode, LamaNode, LamaNode> ctor) {
+        Precedence existingPrecedence = operatorToPrecedence.get(existingOp);
+        if (existingPrecedence == null) {
+            throw new IllegalArgumentException("Operator " + existingOp + " not found");
+        }
+        int newLevel = existingPrecedence.level - 1;
+        for (Precedence p : precedenceTable) {
+            if (p.level >= newLevel) {
+                p.level++;
+            }
+        }
+        addOperatorAtLevel(newLevel, associativity, newOp, ctor);
+    }
+
 
     public void setSource(Source source) {
         this.source = source;
@@ -41,77 +128,74 @@ public class LamaNodeParser {
         return visitor.visit(parser.module());
     }
 
-    private record Infix(
-            String literal,
-            int lbp,
-            int rbp,
-            BiFunction<LamaNode, LamaNode, LamaNode> ctor
-    ) {
-    }
-
-    public static <T extends LamaNode> T withSource(T node, ParserRuleContext ctx, Source source) {
+    public <T extends LamaNode> T withSource(T node, ParserRuleContext ctx) {
         Token start = ctx.getStart();
         Token end = ctx.getStop();
         node.setSourceSection(source.createSection(start.getStartIndex(), end.getStopIndex() - start.getStartIndex() + 1));
         return node;
     }
 
-    private static <T extends LamaNode> T withSource(T node, TerminalNode terminal, Source source) {
+    public <T extends LamaNode> T withSource(T node, TerminalNode terminal) {
         Token token = terminal.getSymbol();
         node.setSourceSection(source.createSection(token.getStartIndex(), token.getStopIndex() - token.getStartIndex() + 1));
         return node;
     }
 
-    private class PrattParser {
-        private final List<LamaNode> exprs;
-        private final List<String> operators;
-        private final List<TerminalNode> opNodes;
-        private int nextExpr;
-        private int nextOp;
+    private static final class MutableInt {
+        int value;
+        MutableInt(int value) { this.value = value; }
+    }
 
-        PrattParser(List<LamaNode> exprs, List<String> operators, List<TerminalNode> opNodes) {
-            this.exprs = exprs;
-            this.operators = operators;
-            this.opNodes = opNodes;
-            this.nextExpr = 0;
-            this.nextOp = 0;
+    public LamaNode parseExpr(List<LamaNode> exprs, List<String> operators, List<TerminalNode> opNodes) {
+        if (exprs.isEmpty()) {
+            throw new IllegalArgumentException("exprs list cannot be empty");
         }
+        if (exprs.size() != operators.size() + 1) {
+            throw new IllegalArgumentException("invalid exprs/operators list sizes");
+        }
+        return parseExpr(exprs, operators, opNodes, 0, new MutableInt(0));
+    }
 
-        LamaNode parseExpr(int minBp) {
-            LamaNode lhs = this.exprs.get(this.nextExpr++);
+    private LamaNode parseExpr(
+            List<LamaNode> exprs,
+            List<String> operators,
+            List<TerminalNode> opNodes,
+            int minPrecedence,
+            MutableInt opIndex
+    ) {
+        LamaNode lhs = exprs.get(opIndex.value);
 
-            while (this.nextOp < this.operators.size()) {
-                var opLiteral = this.operators.get(this.nextOp);
-                var op = infixOperators.get(opLiteral);
+        while (opIndex.value < operators.size()) {
+            String opLiteral = operators.get(opIndex.value);
+            Precedence precedence = operatorToPrecedence.get(opLiteral);
 
-                if (op == null) {
-                    var opNode = this.opNodes.get(this.nextOp);
-                    var tempNode = withSource(new NumNode(0), opNode, source);
-                    throw LamaException.create("operator not found", tempNode);
-                }
-
-                if (op.lbp < minBp) {
-                    break;
-                }
-
-                this.nextOp++;
-
-                var rhs = this.parseExpr(op.rbp);
-                var binaryNode = op.ctor.apply(lhs, rhs);
-                var start = lhs.getSourceSection().getCharIndex();
-                var length = rhs.getSourceSection().getCharEndIndex() - start;
-                binaryNode.setSourceSection(source.createSection(start, length));
-                lhs = binaryNode;
+            if (precedence == null) {
+                throw new ParsingException("operator not found", source, opNodes.get(opIndex.value).getSymbol());
             }
 
-            return lhs;
+            if (precedence.level < minPrecedence) {
+                break;
+            }
+
+            opIndex.value++;
+
+            int nextMinPrecedence = (precedence.associativity == Associativity.RIGHT)
+                    ? precedence.level
+                    : precedence.level + 1;
+
+            LamaNode rhs = parseExpr(exprs, operators, opNodes, nextMinPrecedence, opIndex);
+            BiFunction<LamaNode, LamaNode, LamaNode> ctor = precedence.operators.get(opLiteral);
+            if (ctor == null) {
+                throw new ParsingException("operator `" + opLiteral + "` does not have a constructor", source, opNodes.get(opIndex.value - 1).getSymbol());
+            }
+            LamaNode binaryNode = ctor.apply(lhs, rhs);
+
+            var start = lhs.getSourceSection().getCharIndex();
+            var length = rhs.getSourceSection().getCharEndIndex() - start;
+            binaryNode.setSourceSection(source.createSection(start, length));
+            lhs = binaryNode;
         }
+
+        return lhs;
     }
-
-
-    public LamaNode prattParse(List<LamaNode> exprs, List<String> operators, List<TerminalNode> opNodes) {
-        PrattParser parser = new PrattParser(exprs, operators, opNodes);
-        return parser.parseExpr(0);
-    }
-
 }
