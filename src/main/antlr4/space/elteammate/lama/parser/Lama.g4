@@ -4,6 +4,16 @@ module : definitions* expr EOF;
 
 definitions
     : 'var' IDENT ('=' simpleExpr)? (',' IDENT ('=' simpleExpr)?)* ';' # VarDefinitions
+    | 'fun' IDENT funParams funBody # FunDefinition
+    ;
+
+funParams
+    : '(' ')' # EmptyParams
+    | '(' IDENT (',' IDENT)* ')' # Params
+    ;
+
+funBody
+    : '{' body=scoped '}'
     ;
 
 scoped

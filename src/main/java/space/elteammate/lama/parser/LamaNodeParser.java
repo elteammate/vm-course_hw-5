@@ -6,6 +6,7 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
+import space.elteammate.lama.LamaLanguage;
 import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.expr.AddNodeGen;
 import space.elteammate.lama.nodes.expr.AndNodeGen;
@@ -26,6 +27,8 @@ import java.util.*;
 import java.util.function.BiFunction;
 
 public class LamaNodeParser {
+    private LamaLanguage lang;
+
     public enum Associativity {
         LEFT,
         RIGHT,
@@ -52,7 +55,8 @@ public class LamaNodeParser {
 
     private Source source;
 
-    public LamaNodeParser(Source source) {
+    public LamaNodeParser(LamaLanguage lang, Source source) {
+        this.lang = lang;
         this.source = source;
 
         precedenceTable.add(new Precedence(0, Associativity.NONE));
@@ -135,7 +139,7 @@ public class LamaNodeParser {
     public ModuleObject parse(CharStream program) {
         var lexer = new LamaLexer(program);
         var parser = new LamaParser(new CommonTokenStream(lexer));
-        var visitor = new LamaNodeVisitor(this, source);
+        var visitor = new LamaNodeVisitor(lang, this, source);
         return visitor.processModule(parser.module());
     }
 

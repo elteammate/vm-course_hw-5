@@ -4,7 +4,7 @@ import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.source.Source;
 import org.antlr.v4.runtime.CharStreams;
-import space.elteammate.lama.nodes.LamaRootNode;
+import space.elteammate.lama.nodes.scope.LamaRootNode;
 import space.elteammate.lama.parser.LamaNodeParser;
 import space.elteammate.lama.parser.ParsingException;
 import space.elteammate.lama.types.ModuleObject;
@@ -31,11 +31,15 @@ public class LamaLanguage extends TruffleLanguage<LamaContext> {
     protected CallTarget parse(ParsingRequest request) {
         try {
             Source source = request.getSource();
-            LamaNodeParser parser = new LamaNodeParser(source);
+            LamaNodeParser parser = new LamaNodeParser(this, source);
             ModuleObject module = parser.parse(CharStreams.fromReader(source.getReader()));
             LamaRootNode root = new LamaRootNode(this, module.moduleNode(), module.entrypointFrameDescriptor());
             return root.getCallTarget();
-        } catch (ParsingException | IOException e) {
+        } catch (ParsingException e) {
+            System.out.println("Failed to parse program: " + e.getMessage());
+            System.out.println("At " + e.getToken().getLine() + ":" + e.getToken().getCharPositionInLine());
+            return null;
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
