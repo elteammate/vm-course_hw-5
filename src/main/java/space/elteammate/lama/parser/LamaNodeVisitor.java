@@ -3,6 +3,7 @@ package space.elteammate.lama.parser;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.FrameSlotKind;
 import com.oracle.truffle.api.source.Source;
+import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import space.elteammate.lama.nodes.LamaNode;
@@ -33,7 +34,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         private record LookupBuiltin(Function<List<LamaNode>, LamaNode> builder) implements LookupResult {
         }
 
-        private record LookupGlobal(int idx) implements LookupResult {
+        private record LookupGlobal(int slot) implements LookupResult {
         }
 
         private sealed interface ScopeItem {
@@ -42,7 +43,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         private record ScopeBuiltin(Function<List<LamaNode>, LamaNode> builder) implements ScopeItem {
         }
 
-        private record ScopeFrameSlot(int idx) implements ScopeItem {
+        private record ScopeFrameSlot(int slot) implements ScopeItem {
         }
 
         private record Scope(
@@ -174,6 +175,18 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
     }
 
     @Override
+    public LamaNode visitAssignment(LamaParser.AssignmentContext ctx) {
+        var lvalue = ctx.lvalue();
+        var expr = visit(ctx.expr());
+        if (lvalue instanceof LamaParser.LLookupContext varName) {
+            Telescope.LookupResult lookup = telescope.lookup(varName.getText());
+            return generateStore(lookup, lvalue.getText(), expr, ctx);
+        } else {
+            throw new ParsingException("Can't assign to that", source, ctx.start);
+        }
+    }
+
+    @Override
     public LamaNode visitDirectCall(LamaParser.DirectCallContext ctx) {
         String fnName = ctx.IDENT().getText();
         List<LamaNode> args = ctx.args.stream().map(this::visit).toList();
@@ -202,7 +215,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         return parser.withSource(SeqNodeGen.create(prev, expr), ctx);
     }
 
-    private LamaNode generateLoad(Telescope.LookupResult lookup, String name, LamaParser.LookupContext ctx) {
+    private LamaNode generateLoad(Telescope.LookupResult lookup, String name, ParserRuleContext ctx) {
         switch (lookup) {
             case Telescope.LookupBuiltin builtin ->
                     throw new ParsingException("Builtins can't be promoted to function objects", source, ctx.start);
@@ -214,7 +227,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         }
     }
 
-    private LamaNode generateStore(Telescope.LookupResult lookup, String name, LamaNode value, LamaParser.VarDefinitionsContext ctx) {
+    private LamaNode generateStore(Telescope.LookupResult lookup, String name, LamaNode value, ParserRuleContext ctx) {
         switch (lookup) {
             case Telescope.LookupBuiltin _ ->
                     throw new ParsingException("Builtins can't be written to", source, ctx.start);

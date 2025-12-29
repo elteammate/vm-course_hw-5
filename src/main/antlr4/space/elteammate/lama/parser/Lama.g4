@@ -13,9 +13,14 @@ primary
     | '(' expr ')' # Parenthesized
     ;
 
+lvalue
+    : IDENT # LLookup
+    ;
+
 expr
-    : primary (OP primary)* # RawExpr
+    : lvalue ':=' expr # Assignment
     | expr ';' expr # Seq
+    | primary (OP primary)* # RawExpr
     ;
 
 IDENT : [A-Za-z_'][A-Za-z0-9_']* ;

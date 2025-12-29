@@ -8,7 +8,18 @@ import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.expr.AddNodeGen;
+import space.elteammate.lama.nodes.expr.AndNodeGen;
+import space.elteammate.lama.nodes.expr.DivNodeGen;
+import space.elteammate.lama.nodes.expr.EqualsNodeGen;
+import space.elteammate.lama.nodes.expr.GreaterOrEqualNodeGen;
+import space.elteammate.lama.nodes.expr.GreaterThanNodeGen;
+import space.elteammate.lama.nodes.expr.LessOrEqualNodeGen;
+import space.elteammate.lama.nodes.expr.LessThanNodeGen;
+import space.elteammate.lama.nodes.expr.ModNodeGen;
 import space.elteammate.lama.nodes.expr.MulNodeGen;
+import space.elteammate.lama.nodes.expr.NotEqualsNodeGen;
+import space.elteammate.lama.nodes.expr.OrNodeGen;
+import space.elteammate.lama.nodes.expr.SeqNodeGen;
 import space.elteammate.lama.nodes.expr.SubNodeGen;
 
 import java.util.*;
@@ -49,25 +60,25 @@ public class LamaNodeParser {
         addOperatorAtLevel(0, Associativity.NONE, "lowest", null);
         addOperatorAtLevel(1, Associativity.NONE, "highest", null);
 
-        addOperatorAbove("lowest", ":", Associativity.RIGHT, (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAbove("lowest", ":", Associativity.RIGHT, SeqNodeGen::create);
 
-        addOperatorAbove(":", "!!", Associativity.LEFT, (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAbove(":", "!!", Associativity.LEFT, OrNodeGen::create);
 
-        addOperatorAbove("!!", "&&", Associativity.LEFT, (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAbove("!!", "&&", Associativity.LEFT, AndNodeGen::create);
 
-        addOperatorAbove("&&", "==", Associativity.NONE, (a, b) -> { throw new RuntimeException("not implemented"); });
-        addOperatorAtSameLevel("==", "!=", (a, b) -> { throw new RuntimeException("not implemented"); });
-        addOperatorAtSameLevel("==", "<=", (a, b) -> { throw new RuntimeException("not implemented"); });
-        addOperatorAtSameLevel("==", "<", (a, b) -> { throw new RuntimeException("not implemented"); });
-        addOperatorAtSameLevel("==", ">", (a, b) -> { throw new RuntimeException("not implemented"); });
-        addOperatorAtSameLevel("==", ">=", (a, b) -> { throw new RuntimeException("not implemented"); });
+        addOperatorAbove("&&", "==", Associativity.NONE, EqualsNodeGen::create);
+        addOperatorAtSameLevel("==", "!=", NotEqualsNodeGen::create);
+        addOperatorAtSameLevel("==", "<=", LessOrEqualNodeGen::create);
+        addOperatorAtSameLevel("==", "<", LessThanNodeGen::create);
+        addOperatorAtSameLevel("==", ">", GreaterThanNodeGen::create);
+        addOperatorAtSameLevel("==", ">=", GreaterOrEqualNodeGen::create);
 
         addOperatorAbove("==", "+", Associativity.LEFT, AddNodeGen::create);
         addOperatorAtSameLevel("+", "-", SubNodeGen::create);
 
         addOperatorAbove("+", "*", Associativity.LEFT, MulNodeGen::create);
-        addOperatorAtSameLevel("*", "/", MulNodeGen::create);
-        addOperatorAtSameLevel("*", "%", MulNodeGen::create);
+        addOperatorAtSameLevel("*", "/", DivNodeGen::create);
+        addOperatorAtSameLevel("*", "%", ModNodeGen::create);
 
     }
 
