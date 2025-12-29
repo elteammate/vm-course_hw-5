@@ -9,12 +9,15 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.builtin.ReadBuiltinNode;
 import space.elteammate.lama.nodes.builtin.WriteBuiltinNode;
+import space.elteammate.lama.nodes.cflow.DoWhileNode;
+import space.elteammate.lama.nodes.cflow.ForLoopNode;
+import space.elteammate.lama.nodes.cflow.IfThenElseNode;
+import space.elteammate.lama.nodes.cflow.WhileDoNode;
 import space.elteammate.lama.nodes.expr.SeqNode;
-import space.elteammate.lama.nodes.expr.SeqNodeGen;
+import space.elteammate.lama.nodes.literal.NoopNode;
 import space.elteammate.lama.nodes.literal.NumNode;
-import space.elteammate.lama.nodes.scope.LoadGlobal;
-import space.elteammate.lama.nodes.scope.ModuleNode;
-import space.elteammate.lama.nodes.scope.StoreGlobalNodeGen;
+import space.elteammate.lama.nodes.scope.*;
+import space.elteammate.lama.types.ModuleObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,6 +40,9 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         private record LookupGlobal(int slot) implements LookupResult {
         }
 
+        private record LookupLocal(int slot) implements LookupResult {
+        }
+
         private sealed interface ScopeItem {
         }
 
@@ -44,6 +50,9 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         }
 
         private record ScopeFrameSlot(int slot) implements ScopeItem {
+        }
+
+        private record ScopeGlobal(int slot) implements ScopeItem {
         }
 
         private record Scope(
@@ -56,10 +65,12 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         }
 
         List<Scope> scopes;
+        int numGlobals;
 
         Telescope() {
             scopes = new ArrayList<>(8);
             scopes.add(new Scope(null));
+            numGlobals = 0;
         }
 
         FrameDescriptor.Builder topFrame() {
@@ -88,14 +99,18 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
 
         LookupResult addVar(String name) {
             Scope scope = scopes.getLast();
-            int slot = scope.frame.addSlot(FrameSlotKind.Object, name, null);
-            scope.items.put(name, new ScopeFrameSlot(slot));
             if (scopes.size() <= 1) {
                 throw new IllegalStateException("Can't add variables to first scope");
             } else if (scopes.size() == 2) {
+                int slot = numGlobals;
+                numGlobals++;
+                scope.items.put(name, new ScopeGlobal(slot));
                 return new LookupGlobal(slot);
+            } else {
+                int slot = scope.frame.addSlot(FrameSlotKind.Long, name, null);
+                scope.items.put(name, new ScopeFrameSlot(slot));
+                return new LookupLocal(slot);
             }
-            throw new RuntimeException("TODO");
         }
 
         LookupResult lookup(String name) {
@@ -104,13 +119,14 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                 if (scope.items.containsKey(name)) {
                     ScopeItem item = scope.items.get(name);
 
-                    if (i == 0 && item instanceof ScopeBuiltin(var builder)) {
-                        return new LookupBuiltin(builder);
-                    } else if (i == 1 && item instanceof ScopeFrameSlot(var idx)) {
-                        return new LookupGlobal(idx);
-                    } else {
-                        throw new IllegalStateException("Unknown scope item");
-                    }
+                    int fi = i;
+                    return switch (item) {
+                        case ScopeBuiltin(var builder) -> new LookupBuiltin(builder);
+                        case ScopeFrameSlot(var idx) when fi == 1 -> new LookupGlobal(idx);
+                        case ScopeFrameSlot(var idx) -> new LookupLocal(idx);
+                        case ScopeGlobal(var idx) -> new LookupGlobal(idx);
+                        case null -> throw new IllegalStateException("Unknown scope item");
+                    };
                 }
             }
             return null;
@@ -142,28 +158,43 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
     }
 
     @Override
-    public LamaNode visitParenthesized(LamaParser.ParenthesizedContext ctx) {
-        return visit(ctx.expr());
+    public LamaNode visitScopedExpr(LamaParser.ScopedExprContext ctx) {
+        if (ctx.definitions().isEmpty()) {
+            return visit(ctx.expr());
+        }
+
+        telescope.pushScope();
+        Supplier<LamaNode> init = processDefinitions(ctx.definitions());
+        LamaNode expr = SeqNode.create(init.get(), visit(ctx.expr()));
+        telescope.popScope();
+        return parser.withSource(expr, ctx);
     }
 
     @Override
-    public LamaNode visitModule(LamaParser.ModuleContext ctx) {
+    public LamaNode visitParenthesized(LamaParser.ParenthesizedContext ctx) {
+        return parser.withSource(visit(ctx.scoped()), ctx);
+
+    }
+
+    public ModuleObject processModule(LamaParser.ModuleContext ctx) {
         telescope.pushFrame();
 
-        List<Supplier<LamaNode>> inits = processDefinitions(ctx.definitions());
+        Supplier<LamaNode> init = processDefinitions(ctx.definitions());
 
-        List<LamaNode> initExprs = new ArrayList<>();
-        for (Supplier<LamaNode> init : inits) {
-            initExprs.add(init.get());
-        }
-
-        LamaNode expr = SeqNode.fold(initExprs, visit(ctx.expr()));
+        LamaNode expr = SeqNode.create(init.get(), visit(ctx.expr()));
 
         FrameDescriptor frame = telescope.popFrame();
-        return parser.withSource(
-                new ModuleNode(frame.getNumberOfSlots(), expr),
+        ModuleNode node = parser.withSource(
+                new ModuleNode(telescope.numGlobals, expr),
                 ctx
         );
+
+        return new ModuleObject(node, frame);
+    }
+
+    @Override
+    public LamaNode visitSimple(LamaParser.SimpleContext ctx) {
+        return visit(ctx.simpleExpr());
     }
 
     @Override
@@ -203,6 +234,9 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             case Telescope.LookupGlobal lookupGlobal -> {
                 throw new ParsingException("Can't call global variables yet", source, ctx.start);
             }
+            case Telescope.LookupLocal lookupLocal -> {
+                throw new ParsingException("Can't call local variables yet", source, ctx.start);
+            }
             case null ->
                 throw new ParsingException("Name " + fnName + "is not defined", source, ctx.start);
         }
@@ -212,7 +246,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
     public LamaNode visitSeq(LamaParser.SeqContext ctx) {
         LamaNode prev = visit(ctx.expr(0));
         LamaNode expr = visit(ctx.expr(1));
-        return parser.withSource(SeqNodeGen.create(prev, expr), ctx);
+        return parser.withSource(SeqNode.create(prev, expr), ctx);
     }
 
     private LamaNode generateLoad(Telescope.LookupResult lookup, String name, ParserRuleContext ctx) {
@@ -220,7 +254,10 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             case Telescope.LookupBuiltin builtin ->
                     throw new ParsingException("Builtins can't be promoted to function objects", source, ctx.start);
             case Telescope.LookupGlobal(var slot) -> {
-                return new LoadGlobal(slot);
+                return LoadGlobalNodeGen.create(slot);
+            }
+            case Telescope.LookupLocal(var slot) -> {
+                return LoadLocalNodeGen.create(slot);
             }
             case null ->
                     throw new ParsingException("Variable " + name + " is not defined", source, ctx.start);
@@ -234,44 +271,114 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             case Telescope.LookupGlobal(var slot) -> {
                 return StoreGlobalNodeGen.create(value, slot);
             }
+            case Telescope.LookupLocal(var slot) -> {
+                return StoreLocalNodeGen.create(value, slot);
+            }
             case null ->
                     throw new ParsingException("Variable " + name + " is not defined", source, ctx.start);
         }
     }
 
-    private List<Supplier<LamaNode>> processDefinitions(List<LamaParser.DefinitionsContext> ctx) {
-        List<Supplier<LamaNode>> inits = new ArrayList<>();
+    private Supplier<LamaNode> processDefinitions(List<LamaParser.DefinitionsContext> ctx) {
+        Supplier<LamaNode> init = NoopNode::new;
         for (LamaParser.DefinitionsContext c : ctx) {
-            inits.addAll(processDefinitions(c));
+            Supplier<LamaNode> finalInit = init;
+            init = () -> SeqNode.create(finalInit.get(), processDefinitions(c).get());
         }
-        return inits;
+        return init;
     }
 
-    private List<Supplier<LamaNode>> processDefinitions(LamaParser.DefinitionsContext ctx) {
-        switch (ctx) {
-            case LamaParser.VarDefinitionsContext c -> {
-                return processVarDefinitions(c);
-            }
-            default ->
-                throw new RuntimeException("Unknown context");
+    private Supplier<LamaNode> processDefinitions(LamaParser.DefinitionsContext ctx) {
+        if (ctx instanceof LamaParser.VarDefinitionsContext c) {
+            return processVarDefinitions(c);
         }
+        throw new RuntimeException("Unknown context");
     }
 
-    private List<Supplier<LamaNode>> processVarDefinitions(LamaParser.VarDefinitionsContext ctx) {
-        List<Supplier<LamaNode>> inits = new ArrayList<>();
+    private Supplier<LamaNode> processVarDefinitions(LamaParser.VarDefinitionsContext ctx) {
+        Supplier<LamaNode> init = NoopNode::new;
         for (int i = 0; i < ctx.IDENT().size(); i++) {
             TerminalNode ident = ctx.IDENT(i);
             String name = ident.getText();
             var lookup = telescope.addVar(name);
 
-            LamaParser.ExprContext initializer = ctx.expr(i);
+            LamaParser.SimpleExprContext initializer = ctx.simpleExpr(i);
             if (initializer != null) {
-                inits.add(() -> parser.withSource(
+                Supplier<LamaNode> finalInit = init;
+                init = () -> SeqNode.create(finalInit.get(), parser.withSource(
                         generateStore(lookup, name, visit(initializer), ctx),
                         ctx
                 ));
             }
         }
-        return inits;
+        return init;
+    }
+
+    @Override
+    public LamaNode visitSkip(LamaParser.SkipContext ctx) {
+        return parser.withSource(new NoopNode(), ctx);
+    }
+
+    @Override
+    public LamaNode visitWhileDoLoop(LamaParser.WhileDoLoopContext ctx) {
+        telescope.pushScope();
+        Supplier<LamaNode> init = processDefinitions(ctx.definitions());
+        LamaNode cond = SeqNode.create(init.get(), visit(ctx.cond));
+        LamaNode body = visit(ctx.body);
+        telescope.popScope();
+        return parser.withSource(new WhileDoNode(cond, body), ctx);
+    }
+
+    @Override
+    public LamaNode visitDoWhileLoop(LamaParser.DoWhileLoopContext ctx) {
+        telescope.pushScope();
+        Supplier<LamaNode> init = processDefinitions(ctx.definitions());
+        LamaNode body = SeqNode.create(init.get(), visit(ctx.body));
+        LamaNode cond = visit(ctx.cond);
+        telescope.popScope();
+        return parser.withSource(new DoWhileNode(body, cond), ctx);
+    }
+
+    @Override
+    public LamaNode visitIfStmt(LamaParser.IfStmtContext ctx) {
+        return visit(ctx.ifStmtMiddle());
+    }
+
+    @Override
+    public LamaNode visitIfStmtMiddle(LamaParser.IfStmtMiddleContext ctx) {
+        telescope.pushScope();
+        Supplier<LamaNode> init = processDefinitions(ctx.definitions());
+        LamaNode cond = SeqNode.create(init.get(), visit(ctx.cond));
+        LamaNode then = visit(ctx.then);
+        LamaNode else_ = visit(ctx.ifRest());
+        telescope.popScope();
+        return parser.withSource(new IfThenElseNode(cond, then, else_), ctx);
+    }
+
+    @Override
+    public LamaNode visitIfRestEnd(LamaParser.IfRestEndContext ctx) {
+        return parser.withSource(new NoopNode(), ctx);
+    }
+
+    @Override
+    public LamaNode visitIfElseEnd(LamaParser.IfElseEndContext ctx) {
+        return visit(ctx.else_);
+    }
+
+    @Override
+    public LamaNode visitIfCont(LamaParser.IfContContext ctx) {
+        return visit(ctx.ifStmtMiddle());
+    }
+
+    @Override
+    public LamaNode visitForLoop(LamaParser.ForLoopContext ctx) {
+        telescope.pushScope();
+        Supplier<LamaNode> defInit = processDefinitions(ctx.definitions());
+        LamaNode init = SeqNode.create(defInit.get(), visit(ctx.init));
+        LamaNode cond = visit(ctx.cond);
+        LamaNode step = visit(ctx.step);
+        LamaNode body = visit(ctx.body);
+        telescope.popScope();
+        return parser.withSource(new ForLoopNode(init, cond, step, body), ctx);
     }
 }

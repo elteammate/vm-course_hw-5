@@ -19,8 +19,8 @@ import space.elteammate.lama.nodes.expr.ModNodeGen;
 import space.elteammate.lama.nodes.expr.MulNodeGen;
 import space.elteammate.lama.nodes.expr.NotEqualsNodeGen;
 import space.elteammate.lama.nodes.expr.OrNodeGen;
-import space.elteammate.lama.nodes.expr.SeqNodeGen;
 import space.elteammate.lama.nodes.expr.SubNodeGen;
+import space.elteammate.lama.types.ModuleObject;
 
 import java.util.*;
 import java.util.function.BiFunction;
@@ -60,7 +60,7 @@ public class LamaNodeParser {
         addOperatorAtLevel(0, Associativity.NONE, "lowest", null);
         addOperatorAtLevel(1, Associativity.NONE, "highest", null);
 
-        addOperatorAbove("lowest", ":", Associativity.RIGHT, SeqNodeGen::create);
+        addOperatorAbove("lowest", ":", Associativity.RIGHT, (a, b) -> { throw new RuntimeException("todo"); });
 
         addOperatorAbove(":", "!!", Associativity.LEFT, OrNodeGen::create);
 
@@ -132,11 +132,11 @@ public class LamaNodeParser {
         this.source = source;
     }
 
-    public LamaNode parse(CharStream program) {
+    public ModuleObject parse(CharStream program) {
         var lexer = new LamaLexer(program);
         var parser = new LamaParser(new CommonTokenStream(lexer));
         var visitor = new LamaNodeVisitor(this, source);
-        return visitor.visit(parser.module());
+        return visitor.processModule(parser.module());
     }
 
     public <T extends LamaNode> T withSource(T node, ParserRuleContext ctx) {

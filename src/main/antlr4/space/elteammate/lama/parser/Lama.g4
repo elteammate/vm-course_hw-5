@@ -3,14 +3,38 @@ grammar Lama;
 module : definitions* expr EOF;
 
 definitions
-    : 'var' IDENT ('=' expr)? (',' IDENT ('=' expr)?)* ';' # VarDefinitions
+    : 'var' IDENT ('=' simpleExpr)? (',' IDENT ('=' simpleExpr)?)* ';' # VarDefinitions
+    ;
+
+scoped
+    : definitions* expr # ScopedExpr
     ;
 
 primary
     : NUM # Number
     | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
     | IDENT # Lookup
-    | '(' expr ')' # Parenthesized
+    | 'skip' # Skip
+    | '(' scoped ')' # Parenthesized
+    | 'while' definitions* cond=expr 'do' body=scoped 'od' # WhileDoLoop
+    | 'do' definitions* body=expr 'while' cond=scoped 'od' # DoWhileLoop
+    | 'if' ifStmtMiddle # IfStmt
+    | 'for' definitions* init=expr ',' cond=expr ',' step=expr 'do' body=scoped 'od' # ForLoop
+    ;
+
+ifStmtMiddle
+    : definitions* cond=expr 'then' then=scoped ifRest
+    ;
+
+ifRest
+    : 'fi' # IfRestEnd
+    | 'else' else_=scoped 'fi' # IfElseEnd
+    | 'elif' ifStmtMiddle # IfCont
+    ;
+
+
+simpleExpr
+    : primary (OP primary)* # RawExpr
     ;
 
 lvalue
@@ -20,7 +44,7 @@ lvalue
 expr
     : lvalue ':=' expr # Assignment
     | expr ';' expr # Seq
-    | primary (OP primary)* # RawExpr
+    | simpleExpr # Simple
     ;
 
 IDENT : [A-Za-z_'][A-Za-z0-9_']* ;

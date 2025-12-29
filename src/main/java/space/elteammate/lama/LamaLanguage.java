@@ -5,9 +5,9 @@ import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.source.Source;
 import org.antlr.v4.runtime.CharStreams;
 import space.elteammate.lama.nodes.LamaRootNode;
-import space.elteammate.lama.nodes.scope.ModuleNode;
 import space.elteammate.lama.parser.LamaNodeParser;
 import space.elteammate.lama.parser.ParsingException;
+import space.elteammate.lama.types.ModuleObject;
 
 import java.io.IOException;
 
@@ -32,8 +32,8 @@ public class LamaLanguage extends TruffleLanguage<LamaContext> {
         try {
             Source source = request.getSource();
             LamaNodeParser parser = new LamaNodeParser(source);
-            ModuleNode node = (ModuleNode) parser.parse(CharStreams.fromReader(source.getReader()));
-            LamaRootNode root = new LamaRootNode(this, node);
+            ModuleObject module = parser.parse(CharStreams.fromReader(source.getReader()));
+            LamaRootNode root = new LamaRootNode(this, module.moduleNode(), module.entrypointFrameDescriptor());
             return root.getCallTarget();
         } catch (ParsingException | IOException e) {
             throw new RuntimeException(e);
