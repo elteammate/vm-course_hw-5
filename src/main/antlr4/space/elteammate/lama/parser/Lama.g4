@@ -54,6 +54,7 @@ pattern
     | '{' items+=pattern (',' items+=pattern)+ '}' # ListPatt
     | head=pattern ':' tail=pattern # ConsPatt
     | '[' (items+=pattern)? (',' items+=pattern)+ ']' # ArrayPatt
+    | NUM # NumPatt
     | STRING # StringPatt
     | CHAR # CharPatt
     | 'true' # TruePatt

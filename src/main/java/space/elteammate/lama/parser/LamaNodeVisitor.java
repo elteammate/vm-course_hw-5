@@ -5,6 +5,7 @@ import com.oracle.truffle.api.frame.FrameSlotKind;
 import com.oracle.truffle.api.source.Source;
 import com.oracle.truffle.api.strings.TruffleString;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
@@ -182,45 +183,62 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         telescope.addBuiltin("string", StringBuiltinNode::build);
     }
 
+    private long parseNumber(Token t) {
+        try {
+            return Long.parseLong(t.getText());
+        } catch (NumberFormatException e) {
+            throw new ParsingException("Not a number", source, t);
+        }
+    }
+
+    private char parseChar(Token t) {
+        String text = t.getText();
+        String content = text.substring(1, text.length() - 1);
+        if (content.startsWith("\\")) {
+            if (content.length() != 2) {
+                throw new ParsingException("Invalid char escape sequence in literal " + text, source, t);
+            }
+            return switch (content.charAt(1)) {
+                case 'n' -> '\n';
+                case 't' -> '\t';
+                case 'r' -> '\r';
+                case '\'' -> '\'';
+                case '\\' -> '\\';
+                default ->
+                        throw new ParsingException("Unsupported escape sequence in char literal: " + text, source, t);
+            };
+        } else if (content.equals("''")) {
+            return '\'';
+        } else {
+            if (content.length() != 1) {
+                throw new ParsingException("Char literal must have length 1 or be an escape sequence: " + text, source, t);
+            }
+            return content.charAt(0);
+        }
+    }
+
+    private String parseString(Token t) {
+        String rawString = t.getText();
+        return rawString
+                .substring(1, rawString.length() - 1)
+                .replace("\"\"", "\"");
+    }
+
     @Override
     public LamaNode visitNumber(LamaParser.NumberContext ctx) {
-        long num = Long.parseLong(ctx.NUM().getText());
+        long num = parseNumber(ctx.NUM().getSymbol());
         return parser.withSource(new NumNode(num), ctx);
     }
 
     @Override
     public LamaNode visitChar(LamaParser.CharContext ctx) {
-        String text = ctx.CHAR().getText();
-        String content = text.substring(1, text.length() - 1);
-        char c;
-        if (content.startsWith("\\")) {
-            if (content.length() != 2) {
-                throw new ParsingException("Invalid char escape sequence in literal " + text, source, ctx.getStart());
-            }
-            switch (content.charAt(1)) {
-                case 'n' -> c = '\n';
-                case 't' -> c = '\t';
-                case 'r' -> c = '\r';
-                case '\'' -> c = '\'';
-                case '\\' -> c = '\\';
-                default ->
-                        throw new ParsingException("Unsupported escape sequence in char literal: " + text, source, ctx.getStart());
-            }
-        } else if (content.equals("''")) {
-            c = '\'';
-        } else {
-            if (content.length() != 1) {
-                throw new ParsingException("Char literal must have length 1 or be an escape sequence: " + text, source, ctx.getStart());
-            }
-            c = content.charAt(0);
-        }
+        char c = parseChar(ctx.CHAR().getSymbol());
         return parser.withSource(new NumNode(c), ctx);
     }
 
     @Override
     public LamaNode visitString(LamaParser.StringContext ctx) {
-        String rawString = ctx.STRING().getText();
-        String unescaped = rawString.substring(1, rawString.length() - 1).replace("\"\"", "\"");
+        String unescaped = parseString(ctx.STRING().getSymbol());
         return parser.withSource(
                 new StringNode(unescaped.getBytes()),
                 ctx
@@ -609,13 +627,26 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
 
     private BasePatternNode processPattern(LamaParser.PatternContext ctx) {
         return switch (ctx) {
-            case LamaParser.WildcardContext c -> processWildcardPattern(c);
             case LamaParser.SexpPattContext c -> processSexpPattern(c);
             case LamaParser.BindingContext c -> processBindingPattern(c);
             case LamaParser.AsPattContext c -> processAsPattern(c);
+            case LamaParser.WildcardContext c -> processWildcardPattern(c);
             case LamaParser.EmptyListPattContext c -> processEmptyListPattern(c);
             case LamaParser.ListPattContext c -> processListPattern(c);
             case LamaParser.ConsPattContext c -> processConsPattern(c);
+            case LamaParser.ArrayPattContext c -> processArrayPattern(c);
+            case LamaParser.NumPattContext c -> processNumPattern(c);
+            case LamaParser.StringPattContext c -> processStringPattern(c);
+            case LamaParser.CharPattContext c -> processCharPattern(c);
+            case LamaParser.TruePattContext c -> processTruePattern(c);
+            case LamaParser.FalsePattContext c -> processFalsePattern(c);
+            case LamaParser.TBoxPattContext c -> processTBoxPattern(c);
+            case LamaParser.TValPattContext c -> processTValPattern(c);
+            case LamaParser.TStrPattContext c -> processTStrPattern(c);
+            case LamaParser.TArrayPattContext c -> processTArrayPattern(c);
+            case LamaParser.TSexpPattContext c -> processTSexpPattern(c);
+            case LamaParser.TFunPattContext c -> processTFunPattern(c);
+            case LamaParser.ParenthesisedPatternContext c -> processPattern(c.pattern());
             default -> throw new ParsingException("Pattern is not handled", source, ctx.getStart());
         };
     }
@@ -629,7 +660,9 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                 ctx.SIDENT().getText(),
                 TruffleString.Encoding.BYTES
         );
-        BasePatternNode[] items = ctx.pattern().stream().map(this::processPattern).toArray(BasePatternNode[]::new);
+        BasePatternNode[] items = ctx.pattern().stream()
+                .map(this::processPattern)
+                .toArray(BasePatternNode[]::new);
         return parser.withSource(new SexpPatternNode(tag, items), ctx);
     }
 
@@ -666,5 +699,59 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             result = new ConsPatternNode(processPattern(patterns.get(i)), result);
         }
         return parser.withSource(result, ctx);
+    }
+
+    private ArrayPatternNode processArrayPattern(LamaParser.ArrayPattContext ctx) {
+        BasePatternNode[] items = ctx.pattern().stream()
+                .map(this::processPattern)
+                .toArray(BasePatternNode[]::new);
+        return parser.withSource(new ArrayPatternNode(items), ctx);
+    }
+
+    private ConstPatternNode processNumPattern(LamaParser.NumPattContext ctx) {
+        return parser.withSource(new ConstPatternNode(parseNumber(ctx.NUM().getSymbol())), ctx);
+    }
+
+    private StringPatternNode processStringPattern(LamaParser.StringPattContext ctx) {
+        String unescaped = parseString(ctx.STRING().getSymbol());
+        TruffleString pattern = TruffleString.fromConstant(unescaped, TruffleString.Encoding.BYTES);
+        return parser.withSource(new StringPatternNode(pattern), ctx);
+    }
+
+    private ConstPatternNode processCharPattern(LamaParser.CharPattContext ctx) {
+        char unescaped = parseChar(ctx.CHAR().getSymbol());
+        return parser.withSource(new ConstPatternNode((long)unescaped), ctx);
+    }
+
+    private TruePatternNode processTruePattern(LamaParser.TruePattContext ctx) {
+        return parser.withSource(new TruePatternNode(), ctx);
+    }
+
+    private ConstPatternNode processFalsePattern(LamaParser.FalsePattContext ctx) {
+        return parser.withSource(new ConstPatternNode(0L), ctx);
+    }
+
+    private TypePatternNode.Box processTBoxPattern(LamaParser.TBoxPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Box(), ctx);
+    }
+
+    private TypePatternNode.Val processTValPattern(LamaParser.TValPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Val(), ctx);
+    }
+
+    private TypePatternNode.Str processTStrPattern(LamaParser.TStrPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Str(), ctx);
+    }
+
+    private TypePatternNode.Array processTArrayPattern(LamaParser.TArrayPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Array(), ctx);
+    }
+
+    private TypePatternNode.Sexp processTSexpPattern(LamaParser.TSexpPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Sexp(), ctx);
+    }
+
+    private TypePatternNode.Fun processTFunPattern(LamaParser.TFunPattContext ctx) {
+        return parser.withSource(new TypePatternNode.Fun(), ctx);
     }
 }
