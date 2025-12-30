@@ -3,9 +3,7 @@ package space.elteammate.lama.parser;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.FrameSlotKind;
 import com.oracle.truffle.api.source.Source;
-import com.oracle.truffle.api.strings.MutableTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
-import com.oracle.truffle.api.strings.TruffleStringFactory;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -15,21 +13,20 @@ import space.elteammate.lama.LamaLanguage;
 import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.builtin.LengthBuiltinNode;
 import space.elteammate.lama.nodes.builtin.ReadBuiltinNode;
+import space.elteammate.lama.nodes.builtin.StringBuiltinNode;
 import space.elteammate.lama.nodes.builtin.WriteBuiltinNode;
 import space.elteammate.lama.nodes.cflow.DoWhileNode;
 import space.elteammate.lama.nodes.cflow.ForLoopNode;
 import space.elteammate.lama.nodes.cflow.IfThenElseNode;
 import space.elteammate.lama.nodes.cflow.WhileDoNode;
 import space.elteammate.lama.nodes.expr.*;
-import space.elteammate.lama.nodes.literal.NoopNode;
-import space.elteammate.lama.nodes.literal.NumNode;
-import space.elteammate.lama.nodes.literal.StringNode;
+import space.elteammate.lama.nodes.literal.*;
+import space.elteammate.lama.nodes.pattern.*;
 import space.elteammate.lama.nodes.scope.*;
 import space.elteammate.lama.types.FunctionObject;
 import space.elteammate.lama.types.ModuleObject;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -182,45 +179,58 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         telescope.addBuiltin("read", ReadBuiltinNode::build);
         telescope.addBuiltin("write", WriteBuiltinNode::build);
         telescope.addBuiltin("length", LengthBuiltinNode::build);
+        telescope.addBuiltin("string", StringBuiltinNode::build);
     }
 
     @Override
     public LamaNode visitNumber(LamaParser.NumberContext ctx) {
-        return parser.withSource(new NumNode(Long.parseLong(ctx.NUM().getText())), ctx);
+        long num = Long.parseLong(ctx.NUM().getText());
+        return parser.withSource(new NumNode(num), ctx);
+    }
+
+    @Override
+    public LamaNode visitChar(LamaParser.CharContext ctx) {
+        String text = ctx.CHAR().getText();
+        String content = text.substring(1, text.length() - 1);
+        char c;
+        if (content.startsWith("\\")) {
+            if (content.length() != 2) {
+                throw new ParsingException("Invalid char escape sequence in literal " + text, source, ctx.getStart());
+            }
+            switch (content.charAt(1)) {
+                case 'n' -> c = '\n';
+                case 't' -> c = '\t';
+                case 'r' -> c = '\r';
+                case '\'' -> c = '\'';
+                case '\\' -> c = '\\';
+                default ->
+                        throw new ParsingException("Unsupported escape sequence in char literal: " + text, source, ctx.getStart());
+            }
+        } else if (content.equals("''")) {
+            c = '\'';
+        } else {
+            if (content.length() != 1) {
+                throw new ParsingException("Char literal must have length 1 or be an escape sequence: " + text, source, ctx.getStart());
+            }
+            c = content.charAt(0);
+        }
+        return parser.withSource(new NumNode(c), ctx);
     }
 
     @Override
     public LamaNode visitString(LamaParser.StringContext ctx) {
-        byte[] rawString = ctx.STRING().getText().getBytes();
-        byte[] decoded = new byte[rawString.length - 2];
-        int length = 0;
-
-        for (int i = 1; i < rawString.length - 1; i++) {
-            if (rawString[i] != '\\') {
-                decoded[length++] = rawString[i];
-            } else if (rawString[i + 1] == 'n') {
-                decoded[length++] = '\n';
-            } else if (rawString[i + 1] == 't') {
-                decoded[length++] = '\t';
-            } else if (rawString[i + 1] == 'r') {
-                decoded[length++] = '\r';
-            } else if (rawString[i + 1] == '"') {
-                decoded[length++] = '"';
-            } else if (rawString[i + 1] == '\\') {
-                decoded[length++] = '\\';
-            } else {
-                throw new ParsingException(
-                        "Invalid string escape \\" + rawString[i + 1],
-                        source,
-                        ctx.getStart()
-                );
-            }
-        }
-
+        String rawString = ctx.STRING().getText();
+        String unescaped = rawString.substring(1, rawString.length() - 1).replace("\"\"", "\"");
         return parser.withSource(
-                new StringNode(Arrays.copyOfRange(decoded, 0, length)),
+                new StringNode(unescaped.getBytes()),
                 ctx
         );
+    }
+
+    @Override
+    public LamaNode visitArray(LamaParser.ArrayContext ctx) {
+        LamaNode[] items = ctx.items.stream().map(this::visit).toArray(LamaNode[]::new);
+        return parser.withSource(new ArrayNode(items), ctx);
     }
 
     @Override
@@ -553,5 +563,108 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         LamaNode collection = visit(ctx.collection);
         LamaNode index = visit(ctx.index);
         return parser.withSource(LoadIndexNodeGen.create(collection, index), ctx);
+    }
+
+    @Override
+    public LamaNode visitSexp(LamaParser.SexpContext ctx) {
+        TruffleString tag = TruffleString.fromConstant(ctx.SIDENT().getText(), TruffleString.Encoding.BYTES);
+        LamaNode[] items = ctx.items.stream().map(this::visit).toArray(LamaNode[]::new);
+        return parser.withSource(new SexpNode(tag, items), ctx);
+    }
+
+    @Override
+    public LamaNode visitCaseExpr(LamaParser.CaseExprContext ctx) {
+        telescope.pushScope();
+        Supplier<LamaNode> defInit = processDefinitions(ctx.definitions());
+        LamaNode scrutinee = SeqNode.create(defInit.get(), visit(ctx.scrutinee));
+        List<CaseNode.Branch> branches = ctx.caseBranch().stream().map(this::processBranch).toList();
+        telescope.popScope();
+        return parser.withSource(new CaseNode(scrutinee, branches), ctx);
+    }
+
+    @Override
+    public LamaNode visitEmptyList(LamaParser.EmptyListContext ctx) {
+        return parser.withSource(new NumNode(0), ctx);
+    }
+
+    @Override
+    public LamaNode visitListCtor(LamaParser.ListCtorContext ctx) {
+        LamaNode result = new NumNode(0L);
+        var items = ctx.items;
+        for (int i = items.size() - 1; i >= 0; i--) {
+            result = ConsNodeGen.create(visit(items.get(i)), result);
+        }
+        return parser.withSource(result, ctx);
+    }
+
+    private CaseNode.Branch processBranch(LamaParser.CaseBranchContext ctx) {
+        telescope.pushScope();
+        CaseNode.Branch branch = new CaseNode.Branch(
+                processPattern(ctx.pattern()),
+                visit(ctx.scoped())
+        );
+        telescope.popScope();
+        return branch;
+    }
+
+    private BasePatternNode processPattern(LamaParser.PatternContext ctx) {
+        return switch (ctx) {
+            case LamaParser.WildcardContext c -> processWildcardPattern(c);
+            case LamaParser.SexpPattContext c -> processSexpPattern(c);
+            case LamaParser.BindingContext c -> processBindingPattern(c);
+            case LamaParser.AsPattContext c -> processAsPattern(c);
+            case LamaParser.EmptyListPattContext c -> processEmptyListPattern(c);
+            case LamaParser.ListPattContext c -> processListPattern(c);
+            case LamaParser.ConsPattContext c -> processConsPattern(c);
+            default -> throw new ParsingException("Pattern is not handled", source, ctx.getStart());
+        };
+    }
+
+    private WildcardPatternNode processWildcardPattern(LamaParser.WildcardContext ctx) {
+        return parser.withSource(new WildcardPatternNode(), ctx);
+    }
+
+    private SexpPatternNode processSexpPattern(LamaParser.SexpPattContext ctx) {
+        TruffleString tag = TruffleString.fromConstant(
+                ctx.SIDENT().getText(),
+                TruffleString.Encoding.BYTES
+        );
+        BasePatternNode[] items = ctx.pattern().stream().map(this::processPattern).toArray(BasePatternNode[]::new);
+        return parser.withSource(new SexpPatternNode(tag, items), ctx);
+    }
+
+    private BindingPatternNode processBindingPattern(LamaParser.BindingContext ctx) {
+        Telescope.LookupResult lookup = telescope.addVar(ctx.IDENT().getText());
+        assert lookup instanceof Telescope.LookupLocal;
+        int slot = ((Telescope.LookupLocal) lookup).slot;
+        return parser.withSource(new BindingPatternNode(slot), ctx);
+    }
+
+    private AsPatternNode processAsPattern(LamaParser.AsPattContext ctx) {
+        Telescope.LookupResult lookup = telescope.addVar(ctx.IDENT().getText());
+        assert lookup instanceof Telescope.LookupLocal;
+        int slot = ((Telescope.LookupLocal) lookup).slot;
+        BasePatternNode patt = processPattern(ctx.pattern());
+        return parser.withSource(new AsPatternNode(slot, patt), ctx);
+    }
+
+    private ConstPatternNode processEmptyListPattern(LamaParser.EmptyListPattContext ctx) {
+        return parser.withSource(new ConstPatternNode(0L), ctx);
+    }
+
+    private ConsPatternNode processConsPattern(LamaParser.ConsPattContext ctx) {
+        return parser.withSource(new ConsPatternNode(
+                processPattern(ctx.head),
+                processPattern(ctx.tail)
+        ), ctx);
+    }
+
+    private BasePatternNode processListPattern(LamaParser.ListPattContext ctx) {
+        BasePatternNode result = new ConstPatternNode(0L);
+        var patterns = ctx.pattern();
+        for (int i = patterns.size() - 1; i >= 0; i--) {
+            result = new ConsPatternNode(processPattern(patterns.get(i)), result);
+        }
+        return parser.withSource(result, ctx);
     }
 }

@@ -23,6 +23,7 @@ scoped
 primary
     : NUM # Number
     | STRING # String
+    | CHAR # Char
     | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
     | IDENT # Lookup
     | 'skip' # Skip
@@ -31,8 +32,39 @@ primary
     | 'do' definitions* body=expr 'while' cond=scoped 'od' # DoWhileLoop
     | 'if' ifStmtMiddle # IfStmt
     | 'for' definitions* init=expr ',' cond=expr ',' step=expr 'do' body=scoped 'od' # ForLoop
+    | 'case' definitions* scrutinee=expr 'of' caseBranch ('|' caseBranch)* 'esac' # CaseExpr
     | collection=primary '[' index=expr ']' # Indexing
     | recv=primary '.' IDENT ('(' (args+=expr (',' args+=expr)* ','?)? ')')? # DotCall
+    | '[' ((items+=expr) (',' items+=expr)*)? ']' # Array
+    | SIDENT ('(' ((items+=expr) (',' items+=expr)*)? ')')? # Sexp
+    | '{' '}' # EmptyList
+    | '{' items+=expr (',' items+=expr)+ '}' # ListCtor
+    ;
+
+caseBranch
+    : pattern '->' scoped
+    ;
+
+pattern
+    : SIDENT ('(' ((items+=pattern) (',' items+=pattern)*)? ')')? # SexpPatt
+    | IDENT # Binding
+    | IDENT '@' pattern # AsPatt
+    | '_' # Wildcard
+    | '{' '}' # EmptyListPatt
+    | '{' items+=pattern (',' items+=pattern)+ '}' # ListPatt
+    | head=pattern ':' tail=pattern # ConsPatt
+    | '[' (items+=pattern)? (',' items+=pattern)+ ']' # ArrayPatt
+    | STRING # StringPatt
+    | CHAR # CharPatt
+    | 'true' # TruePatt
+    | 'false' # FalsePatt
+    | '#' 'box' # TBoxPatt
+    | '#' 'val' # TValPatt
+    | '#' 'str' # TStrPatt
+    | '#' 'array' # TArrayPatt
+    | '#' 'sexp' # TSexpPatt
+    | '#' 'fun' # TFunPatt
+    | '(' pattern ')' # ParenthesisedPattern
     ;
 
 ifStmtMiddle
@@ -61,11 +93,10 @@ expr
     | simpleExpr # Simple
     ;
 
-IDENT : [A-Za-z_'][A-Za-z0-9_']* ;
+IDENT : [a-z][A-Za-z0-9_']* ;
+SIDENT : [A-Z][A-Za-z0-9_']* ;
 NUM : [0-9]+ ;
 WS : [ \t\r\n]+ -> skip ;
 OP : [+\-*/%<=>!&:]+ ;
-STRING : '"' ( ESC_SEQ | ~["\\] )* '"' ;
-fragment ESC_SEQ
-    : '\\' [nrt"\\]
-    ;
+STRING : '"' ( ~'"' | '""' )* '"' ;
+CHAR : '\'' ( ~'\'' | '\'\'' | '\n' | '\t' ) '\'';

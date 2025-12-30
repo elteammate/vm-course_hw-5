@@ -7,14 +7,14 @@ import space.elteammate.lama.types.ModuleResultObject;
 
 public class ModuleNode extends LamaNode {
     private final LamaContext.Descriptor descriptor;
-    @Child LamaNode expr;
+    @Child
+    LamaNode expr;
 
     public ModuleNode(LamaContext.Descriptor descriptor, LamaNode expr) {
         this.descriptor = descriptor;
         this.expr = expr;
     }
 
-    @Override
     public ModuleResultObject execute(VirtualFrame virtualFrame) {
         LamaContext context = LamaContext.get(this);
         context.initialize(descriptor);

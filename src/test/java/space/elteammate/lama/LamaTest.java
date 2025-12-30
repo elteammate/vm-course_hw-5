@@ -143,6 +143,12 @@ public class LamaTest {
         if (testData.result != null) {
             String actualOutput = out.toString().strip().replaceAll("\\r\\n", "\n");
             String expectedOutput = testData.result.strip().replaceAll("\\r\\n", "\n");
+            System.out.println(">>>> Expected >>>>");
+            System.out.println(expectedOutput);
+            System.out.println("<<<<<<<<<");
+            System.out.println(">>>> Actual >>>>");
+            System.out.println(actualOutput);
+            System.out.println("<<<<<<<<<");
             assertEquals(expectedOutput, actualOutput);
         }
         assertEquals(0, code);

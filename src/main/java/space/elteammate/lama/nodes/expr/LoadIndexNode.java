@@ -4,12 +4,12 @@ import com.oracle.truffle.api.dsl.Bind;
 import com.oracle.truffle.api.dsl.Fallback;
 import com.oracle.truffle.api.dsl.NodeChild;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.strings.MutableTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
 import space.elteammate.lama.LamaException;
 import space.elteammate.lama.nodes.LamaNode;
+import space.elteammate.lama.types.Sexp;
 
 @NodeChild("collection")
 @NodeChild("index")
@@ -28,6 +28,22 @@ public abstract class LoadIndexNode extends LamaNode {
             throw LamaException.create("String index out of bounds", this);
         }
         return readByteNode.execute(collection, (int)index, TruffleString.Encoding.BYTES);
+    }
+
+    @Specialization
+    protected Object loadFromArray(Object[] collection, long index) {
+        if (index < 0 || index > collection.length) {
+            throw LamaException.create("Array index out of bounds", this);
+        }
+        return collection[(int)index];
+    }
+
+    @Specialization
+    protected Object loadFromSexp(Sexp collection, long index) {
+        if (index < 0 || index > collection.items().length) {
+            throw LamaException.create("Array index out of bounds", this);
+        }
+        return collection.items()[(int)index];
     }
 
     @Fallback

@@ -2,9 +2,7 @@ package space.elteammate.lama.nodes.builtin;
 
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.dsl.Bind;
-import com.oracle.truffle.api.dsl.Fallback;
 import com.oracle.truffle.api.dsl.Specialization;
-import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.nodes.NodeInfo;
 import space.elteammate.lama.LamaContext;
 import space.elteammate.lama.LamaException;

@@ -7,20 +7,9 @@ import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import space.elteammate.lama.LamaLanguage;
+import space.elteammate.lama.nodes.LamaBaseNode;
 import space.elteammate.lama.nodes.LamaNode;
-import space.elteammate.lama.nodes.expr.AddNodeGen;
-import space.elteammate.lama.nodes.expr.AndNodeGen;
-import space.elteammate.lama.nodes.expr.DivNodeGen;
-import space.elteammate.lama.nodes.expr.EqualsNodeGen;
-import space.elteammate.lama.nodes.expr.GreaterOrEqualNodeGen;
-import space.elteammate.lama.nodes.expr.GreaterThanNodeGen;
-import space.elteammate.lama.nodes.expr.LessOrEqualNodeGen;
-import space.elteammate.lama.nodes.expr.LessThanNodeGen;
-import space.elteammate.lama.nodes.expr.ModNodeGen;
-import space.elteammate.lama.nodes.expr.MulNodeGen;
-import space.elteammate.lama.nodes.expr.NotEqualsNodeGen;
-import space.elteammate.lama.nodes.expr.OrNodeGen;
-import space.elteammate.lama.nodes.expr.SubNodeGen;
+import space.elteammate.lama.nodes.expr.*;
 import space.elteammate.lama.types.ModuleObject;
 
 import java.util.*;
@@ -64,7 +53,7 @@ public class LamaNodeParser {
         addOperatorAtLevel(0, Associativity.NONE, "lowest", null);
         addOperatorAtLevel(1, Associativity.NONE, "highest", null);
 
-        addOperatorAbove("lowest", ":", Associativity.RIGHT, (a, b) -> { throw new RuntimeException("todo"); });
+        addOperatorAbove("lowest", ":", Associativity.RIGHT, ConsNodeGen::create);
 
         addOperatorAbove(":", "!!", Associativity.LEFT, OrNodeGen::create);
 
@@ -143,14 +132,14 @@ public class LamaNodeParser {
         return visitor.processModule(parser.module());
     }
 
-    public <T extends LamaNode> T withSource(T node, ParserRuleContext ctx) {
+    public <T extends LamaBaseNode> T withSource(T node, ParserRuleContext ctx) {
         Token start = ctx.getStart();
         Token end = ctx.getStop();
         node.setSourceSection(source.createSection(start.getStartIndex(), end.getStopIndex() - start.getStartIndex() + 1));
         return node;
     }
 
-    public <T extends LamaNode> T withSource(T node, TerminalNode terminal) {
+    public <T extends LamaBaseNode> T withSource(T node, TerminalNode terminal) {
         Token token = terminal.getSymbol();
         node.setSourceSection(source.createSection(token.getStartIndex(), token.getStopIndex() - token.getStartIndex() + 1));
         return node;

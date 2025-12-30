@@ -1,7 +1,6 @@
 package space.elteammate.lama.nodes.cflow;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.nodes.UnexpectedResultException;
 import com.oracle.truffle.api.profiles.ConditionProfile;
 import space.elteammate.lama.nodes.LamaNode;
 

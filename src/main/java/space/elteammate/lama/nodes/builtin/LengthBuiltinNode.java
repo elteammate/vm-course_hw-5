@@ -1,6 +1,5 @@
 package space.elteammate.lama.nodes.builtin;
 
-import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.dsl.Bind;
 import com.oracle.truffle.api.dsl.Fallback;
 import com.oracle.truffle.api.dsl.NodeChild;
@@ -9,20 +8,28 @@ import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.nodes.NodeInfo;
 import com.oracle.truffle.api.strings.MutableTruffleString;
 import com.oracle.truffle.api.strings.TruffleString;
-import space.elteammate.lama.LamaContext;
 import space.elteammate.lama.LamaException;
 import space.elteammate.lama.nodes.LamaNode;
+import space.elteammate.lama.types.Sexp;
 
-import java.io.IOException;
 import java.util.List;
 
 @NodeInfo(shortName = "length")
 @NodeChild(value = "arg", type = LamaNode.class)
 public abstract class LengthBuiltinNode extends AbstractBuiltinNode {
     @Specialization
-    @CompilerDirectives.TruffleBoundary
-    public long length(MutableTruffleString arg) {
+    public long lengthString(MutableTruffleString arg) {
         return arg.byteLength(TruffleString.Encoding.BYTES);
+    }
+
+    @Specialization
+    public long lengthArray(Object[] arg) {
+        return arg.length;
+    }
+
+    @Specialization
+    public long lengthSexp(Sexp arg) {
+        return arg.items().length;
     }
 
     @Fallback

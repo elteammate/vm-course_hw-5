@@ -1,8 +1,6 @@
 package space.elteammate.lama.nodes.expr;
 
-import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.nodes.UnexpectedResultException;
 import space.elteammate.lama.nodes.LamaNode;
 import space.elteammate.lama.nodes.literal.NoopNode;
 
