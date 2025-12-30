@@ -3,32 +3,39 @@ package space.elteammate.lama.parser;
 import com.oracle.truffle.api.frame.FrameDescriptor;
 import com.oracle.truffle.api.frame.FrameSlotKind;
 import com.oracle.truffle.api.source.Source;
+import com.oracle.truffle.api.strings.MutableTruffleString;
+import com.oracle.truffle.api.strings.TruffleString;
+import com.oracle.truffle.api.strings.TruffleStringFactory;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import space.elteammate.lama.LamaContext;
 import space.elteammate.lama.LamaLanguage;
 import space.elteammate.lama.nodes.LamaNode;
+import space.elteammate.lama.nodes.builtin.LengthBuiltinNode;
 import space.elteammate.lama.nodes.builtin.ReadBuiltinNode;
 import space.elteammate.lama.nodes.builtin.WriteBuiltinNode;
 import space.elteammate.lama.nodes.cflow.DoWhileNode;
 import space.elteammate.lama.nodes.cflow.ForLoopNode;
 import space.elteammate.lama.nodes.cflow.IfThenElseNode;
 import space.elteammate.lama.nodes.cflow.WhileDoNode;
-import space.elteammate.lama.nodes.expr.DirectCallNode;
-import space.elteammate.lama.nodes.expr.SeqNode;
+import space.elteammate.lama.nodes.expr.*;
 import space.elteammate.lama.nodes.literal.NoopNode;
 import space.elteammate.lama.nodes.literal.NumNode;
+import space.elteammate.lama.nodes.literal.StringNode;
 import space.elteammate.lama.nodes.scope.*;
 import space.elteammate.lama.types.FunctionObject;
 import space.elteammate.lama.types.ModuleObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
     private final LamaLanguage lang;
@@ -36,6 +43,11 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
     private final Source source;
     private final Telescope telescope;
     private final List<FunctionObject> functions;
+
+    @Override
+    public LamaNode visitErrorNode(ErrorNode node) {
+        throw new ParsingException("Failed to parse", source, node.getSymbol());
+    }
 
     private static final class Telescope {
         private sealed interface LookupResult {}
@@ -169,11 +181,46 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
 
         telescope.addBuiltin("read", ReadBuiltinNode::build);
         telescope.addBuiltin("write", WriteBuiltinNode::build);
+        telescope.addBuiltin("length", LengthBuiltinNode::build);
     }
 
     @Override
     public LamaNode visitNumber(LamaParser.NumberContext ctx) {
         return parser.withSource(new NumNode(Long.parseLong(ctx.NUM().getText())), ctx);
+    }
+
+    @Override
+    public LamaNode visitString(LamaParser.StringContext ctx) {
+        byte[] rawString = ctx.STRING().getText().getBytes();
+        byte[] decoded = new byte[rawString.length - 2];
+        int length = 0;
+
+        for (int i = 1; i < rawString.length - 1; i++) {
+            if (rawString[i] != '\\') {
+                decoded[length++] = rawString[i];
+            } else if (rawString[i + 1] == 'n') {
+                decoded[length++] = '\n';
+            } else if (rawString[i + 1] == 't') {
+                decoded[length++] = '\t';
+            } else if (rawString[i + 1] == 'r') {
+                decoded[length++] = '\r';
+            } else if (rawString[i + 1] == '"') {
+                decoded[length++] = '"';
+            } else if (rawString[i + 1] == '\\') {
+                decoded[length++] = '\\';
+            } else {
+                throw new ParsingException(
+                        "Invalid string escape \\" + rawString[i + 1],
+                        source,
+                        ctx.getStart()
+                );
+            }
+        }
+
+        return parser.withSource(
+                new StringNode(Arrays.copyOfRange(decoded, 0, length)),
+                ctx
+        );
     }
 
     @Override
@@ -244,6 +291,10 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         if (lvalue instanceof LamaParser.LLookupContext varName) {
             Telescope.LookupResult lookup = telescope.lookup(varName.getText());
             return generateStore(lookup, lvalue.getText(), expr, ctx);
+        } else if (lvalue instanceof LamaParser.LIndexingContext lIndexing) {
+            LamaNode collection = visit(lIndexing.collection);
+            LamaNode index = visit(lIndexing.index);
+            return StoreIndexNodeGen.create(collection, index, expr);
         } else {
             throw new ParsingException("Can't assign to that", source, ctx.start);
         }
@@ -254,6 +305,25 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         String fnName = ctx.IDENT().getText();
         List<LamaNode> args = ctx.args.stream().map(this::visit).toList();
 
+        return generateDirectCall(fnName, args, ctx);
+    }
+
+    @Override
+    public LamaNode visitDotCall(LamaParser.DotCallContext ctx) {
+        String fnName = ctx.IDENT().getText();
+        List<LamaNode> args = Stream.concat(
+                Stream.of(visit(ctx.recv)),
+                ctx.args.stream().map(this::visit)
+        ).toList();
+
+        return generateDirectCall(fnName, args, ctx);
+    }
+
+    private LamaNode generateDirectCall(
+            String fnName,
+            List<LamaNode> args,
+            ParserRuleContext ctx
+    ) {
         Telescope.LookupResult lookup = telescope.lookup(fnName);
 
         switch (lookup) {
@@ -283,7 +353,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             case Telescope.LookupArg lookupArg -> {
                 throw new ParsingException("Can't call args variables yet", source, ctx.start);
             }
-            case null -> throw new ParsingException("Name " + fnName + "is not defined", source, ctx.start);
+            case null -> throw new ParsingException("Name " + fnName + " is not defined", source, ctx.start);
         }
     }
 
@@ -476,5 +546,12 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
         LamaNode body = visit(ctx.body);
         telescope.popScope();
         return parser.withSource(new ForLoopNode(init, cond, step, body), ctx);
+    }
+
+    @Override
+    public LamaNode visitIndexing(LamaParser.IndexingContext ctx) {
+        LamaNode collection = visit(ctx.collection);
+        LamaNode index = visit(ctx.index);
+        return parser.withSource(LoadIndexNodeGen.create(collection, index), ctx);
     }
 }

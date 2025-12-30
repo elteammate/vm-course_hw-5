@@ -22,6 +22,7 @@ scoped
 
 primary
     : NUM # Number
+    | STRING # String
     | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
     | IDENT # Lookup
     | 'skip' # Skip
@@ -30,6 +31,8 @@ primary
     | 'do' definitions* body=expr 'while' cond=scoped 'od' # DoWhileLoop
     | 'if' ifStmtMiddle # IfStmt
     | 'for' definitions* init=expr ',' cond=expr ',' step=expr 'do' body=scoped 'od' # ForLoop
+    | collection=primary '[' index=expr ']' # Indexing
+    | recv=primary '.' IDENT ('(' (args+=expr (',' args+=expr)* ','?)? ')')? # DotCall
     ;
 
 ifStmtMiddle
@@ -49,6 +52,7 @@ simpleExpr
 
 lvalue
     : IDENT # LLookup
+    | collection=primary '[' index=expr ']' # LIndexing
     ;
 
 expr
@@ -61,3 +65,7 @@ IDENT : [A-Za-z_'][A-Za-z0-9_']* ;
 NUM : [0-9]+ ;
 WS : [ \t\r\n]+ -> skip ;
 OP : [+\-*/%<=>!&:]+ ;
+STRING : '"' ( ESC_SEQ | ~["\\] )* '"' ;
+fragment ESC_SEQ
+    : '\\' [nrt"\\]
+    ;
