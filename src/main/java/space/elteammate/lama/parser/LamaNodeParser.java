@@ -150,7 +150,7 @@ public class LamaNodeParser {
         MutableInt(int value) { this.value = value; }
     }
 
-    public LamaNode parseExpr(List<LamaNode> exprs, List<String> operators, List<TerminalNode> opNodes) {
+    public LamaNode parseExpr(List<LamaNode> exprs, List<String> operators, List<LamaParser.OpContext> opNodes) {
         if (exprs.isEmpty()) {
             throw new IllegalArgumentException("exprs list cannot be empty");
         }
@@ -163,7 +163,7 @@ public class LamaNodeParser {
     private LamaNode parseExpr(
             List<LamaNode> exprs,
             List<String> operators,
-            List<TerminalNode> opNodes,
+            List<LamaParser.OpContext> opNodes,
             int minPrecedence,
             MutableInt opIndex
     ) {
@@ -174,7 +174,7 @@ public class LamaNodeParser {
             Precedence precedence = operatorToPrecedence.get(opLiteral);
 
             if (precedence == null) {
-                throw new ParsingException("operator not found", source, opNodes.get(opIndex.value).getSymbol());
+                throw new ParsingException("operator not found", source, opNodes.get(opIndex.value).getStart());
             }
 
             if (precedence.level < minPrecedence) {
@@ -190,13 +190,19 @@ public class LamaNodeParser {
             LamaNode rhs = parseExpr(exprs, operators, opNodes, nextMinPrecedence, opIndex);
             BiFunction<LamaNode, LamaNode, LamaNode> ctor = precedence.operators.get(opLiteral);
             if (ctor == null) {
-                throw new ParsingException("operator `" + opLiteral + "` does not have a constructor", source, opNodes.get(opIndex.value - 1).getSymbol());
+                throw new ParsingException("operator `" + opLiteral + "` does not have a constructor", source, opNodes.get(opIndex.value - 1).getStart());
             }
             LamaNode binaryNode = ctor.apply(lhs, rhs);
 
-            var start = lhs.getSourceSection().getCharIndex();
-            var length = rhs.getSourceSection().getCharEndIndex() - start;
-            binaryNode.setSourceSection(source.createSection(start, length));
+            if (lhs.getSourceSection() == null) {
+                binaryNode.setSourceSection(rhs.getSourceSection());
+            } else if (rhs.getSourceSection() == null) {
+                binaryNode.setSourceSection(lhs.getSourceSection());
+            } else {
+                var start = lhs.getSourceSection().getCharIndex();
+                var length = rhs.getSourceSection().getCharEndIndex() - start;
+                binaryNode.setSourceSection(source.createSection(start, length));
+            }
             lhs = binaryNode;
         }
 

@@ -6,18 +6,18 @@ import com.oracle.truffle.api.nodes.ExplodeLoop;
 import space.elteammate.lama.LamaContext;
 import space.elteammate.lama.LamaException;
 import space.elteammate.lama.nodes.LamaNode;
-import space.elteammate.lama.types.FunctionObject;
+import space.elteammate.lama.types.LamaCallTarget;
 
 public final class DirectCallNode extends LamaNode {
     @CompilerDirectives.CompilationFinal
-    private FunctionObject fn;
+    private LamaCallTarget fn;
 
     private final int fnSlot;
 
     @Children
     private final LamaNode[] callArguments;
 
-    public DirectCallNode(int fnSlot, FunctionObject fn, LamaNode[] callArguments) {
+    public DirectCallNode(int fnSlot, LamaCallTarget fn, LamaNode[] callArguments) {
         this.callArguments = callArguments;
         this.fnSlot = fnSlot;
         this.fn = fn;
@@ -37,15 +37,15 @@ public final class DirectCallNode extends LamaNode {
             fn = ctx.getFunction(fnSlot);
         }
 
-        if (fn.getNumParams() != argumentValues.length) {
+        if (fn.getNumArgs() != argumentValues.length) {
             CompilerDirectives.transferToInterpreter();
             throw LamaException.create(
                     "Mismatched number of arguments. Given " +
-                            frame.getArguments().length + ", expected " +
-                            fn.getNumParams(),
+                            argumentValues.length + ", expected " +
+                            fn.getNumArgs(),
                     this
             );
         }
-        return fn.getCallTarget().call(argumentValues);
+        return fn.call(argumentValues);
     }
 }

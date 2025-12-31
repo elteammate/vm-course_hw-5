@@ -1,5 +1,5 @@
-infix +++ at + (a, b) { a+b}
+fun plus (a, b) { a+b}
 
 var x = read ();
 
-write (infix +++ (2, 3))
+write (plus(2, 3))

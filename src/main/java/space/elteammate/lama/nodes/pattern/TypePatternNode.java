@@ -1,11 +1,8 @@
 package space.elteammate.lama.nodes.pattern;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
-import com.oracle.truffle.api.profiles.ConditionProfile;
 import com.oracle.truffle.api.strings.MutableTruffleString;
-import com.oracle.truffle.api.strings.TruffleString;
-import space.elteammate.lama.types.FunctionObject;
-import space.elteammate.lama.types.Sexp;
+import space.elteammate.lama.types.ClosureObject;
 
 public class TypePatternNode {
     public static class Box extends BasePatternNode {
@@ -46,7 +43,7 @@ public class TypePatternNode {
     public static class Fun extends BasePatternNode {
         @Override
         public boolean match(VirtualFrame frame, Object scrutinee) {
-            return scrutinee instanceof FunctionObject;
+            return scrutinee instanceof ClosureObject;
         }
     }
 }

@@ -3,8 +3,12 @@ grammar Lama;
 module : definitions* expr EOF;
 
 definitions
-    : 'var' IDENT ('=' simpleExpr)? (',' IDENT ('=' simpleExpr)?)* ';' # VarDefinitions
+    : 'var' varDef (',' varDef)* ';' # VarDefinitions
     | 'fun' IDENT funParams funBody # FunDefinition
+    ;
+
+varDef
+    : IDENT ('=' simpleExpr)?
     ;
 
 funParams
@@ -25,6 +29,7 @@ primary
     | STRING # String
     | CHAR # Char
     | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
+    | fn=primary '(' (args+=expr (',' args+=expr)* ','?)? ')' # IndirectCall
     | IDENT # Lookup
     | 'skip' # Skip
     | '(' scoped ')' # Parenthesized
@@ -39,6 +44,7 @@ primary
     | SIDENT ('(' ((items+=expr) (',' items+=expr)*)? ')')? # Sexp
     | '{' '}' # EmptyList
     | '{' items+=expr (',' items+=expr)+ '}' # ListCtor
+    | 'fun' funParams funBody # InlineFn
     ;
 
 caseBranch
@@ -46,14 +52,18 @@ caseBranch
     ;
 
 pattern
+    : simplePattern # SimplePatt
+    | head=simplePattern ':' tail=pattern # ConsPatt
+    ;
+
+simplePattern
     : SIDENT ('(' ((items+=pattern) (',' items+=pattern)*)? ')')? # SexpPatt
     | IDENT # Binding
     | IDENT '@' pattern # AsPatt
     | '_' # Wildcard
     | '{' '}' # EmptyListPatt
-    | '{' items+=pattern (',' items+=pattern)+ '}' # ListPatt
-    | head=pattern ':' tail=pattern # ConsPatt
-    | '[' (items+=pattern)? (',' items+=pattern)+ ']' # ArrayPatt
+    | '{' items+=pattern (',' items+=pattern)* '}' # ListPatt
+    | '[' ((items+=pattern) (',' items+=pattern)*)? ']' # ArrayPatt
     | NUM # NumPatt
     | STRING # StringPatt
     | CHAR # CharPatt
@@ -80,7 +90,12 @@ ifRest
 
 
 simpleExpr
-    : primary (OP primary)* # RawExpr
+    : primary (op primary)* # RawExpr
+    ;
+
+op
+    : OP
+    | ':'
     ;
 
 lvalue
@@ -89,15 +104,17 @@ lvalue
     ;
 
 expr
-    : lvalue ':=' expr # Assignment
+    : simpleExpr # Simple
+    | lvalue ':=' expr # Assignment
     | expr ';' expr # Seq
-    | simpleExpr # Simple
     ;
 
 IDENT : [a-z][A-Za-z0-9_']* ;
 SIDENT : [A-Z][A-Za-z0-9_']* ;
 NUM : [0-9]+ ;
 WS : [ \t\r\n]+ -> skip ;
+COMMENT : '--' [^\n]* -> skip ;
+MULTILINE_COMMENT : '(*' .*? '*)' -> skip ;
 OP : [+\-*/%<=>!&:]+ ;
 STRING : '"' ( ~'"' | '""' )* '"' ;
 CHAR : '\'' ( ~'\'' | '\'\'' | '\n' | '\t' ) '\'';

@@ -8,6 +8,7 @@ import com.oracle.truffle.api.strings.TruffleString;
         long.class,
         Sexp.class,
         LamaList.class,
+        ClosureObject.class,
         MutableTruffleString.class,
         Object[].class,
 })

@@ -1,10 +1,11 @@
 package space.elteammate.lama;
 
+import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.dsl.Bind;
 import com.oracle.truffle.api.nodes.Node;
-import space.elteammate.lama.types.FunctionObject;
+import space.elteammate.lama.types.LamaCallTarget;
 
 import java.io.*;
 
@@ -14,13 +15,13 @@ public class LamaContext {
     private final BufferedWriter output;
     @CompilerDirectives.CompilationFinal
     private Object[] globals;
-    private FunctionObject[] functionObjects;
+    private LamaCallTarget[] functions;
     private static final TruffleLanguage.ContextReference<LamaContext> REFERENCE =
             TruffleLanguage.ContextReference.create(LamaLanguage.class);
 
     public record Descriptor(
            int numGlobals,
-           FunctionObject[] functionObjects
+           LamaCallTarget[] functions
     ) {
     }
 
@@ -47,7 +48,7 @@ public class LamaContext {
             globals[i] = 0L;
         }
 
-        functionObjects = descriptor.functionObjects();
+        functions = descriptor.functions();
     }
 
     public Object getGlobal(int slot) {
@@ -58,7 +59,7 @@ public class LamaContext {
         globals[slot]  = value;
     }
 
-    public FunctionObject getFunction(int fnSlot) {
-        return functionObjects[fnSlot];
+    public LamaCallTarget getFunction(int fnSlot) {
+        return functions[fnSlot];
     }
 }

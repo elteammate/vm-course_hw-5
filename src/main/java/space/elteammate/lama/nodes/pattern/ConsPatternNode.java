@@ -36,6 +36,6 @@ public final class ConsPatternNode extends BasePatternNode {
         if (!headProfile.profile(head.match(frame, list.head()))) {
             return false;
         }
-        return tail.match(frame, list.tail());
+        return tail.match(frame, list.tail() == null ? 0L : list.tail());
     }
 }

@@ -7,11 +7,10 @@ import com.oracle.truffle.api.dsl.Specialization;
 import com.oracle.truffle.api.nodes.Node;
 import com.oracle.truffle.api.nodes.NodeInfo;
 import com.oracle.truffle.api.strings.MutableTruffleString;
-import com.oracle.truffle.api.strings.TruffleString;
 import com.oracle.truffle.api.strings.TruffleString.Encoding;
 import space.elteammate.lama.LamaException;
 import space.elteammate.lama.nodes.LamaNode;
-import space.elteammate.lama.types.FunctionObject;
+import space.elteammate.lama.types.ClosureObject;
 import space.elteammate.lama.types.LamaList;
 import space.elteammate.lama.types.Sexp;
 
@@ -69,8 +68,8 @@ public abstract class StringBuiltinNode extends AbstractBuiltinNode {
                 }
                 sb.append(')');
             }
-        } else if (o instanceof FunctionObject) {
-            sb.append("<closure>");
+        } else if (o instanceof ClosureObject) {
+            sb.append("<closure TODO>");
         } else {
             sb.append("*** invalid data ***");
         }
@@ -103,7 +102,7 @@ public abstract class StringBuiltinNode extends AbstractBuiltinNode {
     }
 
     @Specialization
-    public MutableTruffleString stringFunction(FunctionObject arg) {
+    public MutableTruffleString stringClosure(ClosureObject arg) {
         return stringify(arg);
     }
 
