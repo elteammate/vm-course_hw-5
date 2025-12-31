@@ -24,7 +24,7 @@ public class LamaLanguage extends TruffleLanguage<LamaContext> {
 
     @Override
     protected LamaContext createContext(Env env) {
-        return new LamaContext(env);
+        return new LamaContext(env, this);
     }
 
     @Override

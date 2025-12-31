@@ -1,6 +1,5 @@
 package space.elteammate.lama;
 
-import com.oracle.truffle.api.CallTarget;
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.TruffleLanguage;
 import com.oracle.truffle.api.dsl.Bind;
@@ -16,8 +15,13 @@ public class LamaContext {
     @CompilerDirectives.CompilationFinal
     private Object[] globals;
     private LamaCallTarget[] functions;
+    private LamaLanguage lang;
     private static final TruffleLanguage.ContextReference<LamaContext> REFERENCE =
             TruffleLanguage.ContextReference.create(LamaLanguage.class);
+
+    public LamaLanguage getLang() {
+        return lang;
+    }
 
     public record Descriptor(
            int numGlobals,
@@ -25,9 +29,10 @@ public class LamaContext {
     ) {
     }
 
-    public LamaContext(TruffleLanguage.Env env) {
+    public LamaContext(TruffleLanguage.Env env, LamaLanguage lang) {
         this.input = new BufferedReader(new InputStreamReader(env.in()));
         this.output = new BufferedWriter(new OutputStreamWriter(env.out()));
+        this.lang = lang;
     }
 
     public static LamaContext get(Node node) {

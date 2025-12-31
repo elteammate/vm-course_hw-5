@@ -1,3 +1,14 @@
+fun checkSorted (l) {
+  case l of
+    x : z@(y : tl) ->
+      if x <= y
+      then checkSorted (z)
+      else false
+      fi
+  | _ -> true
+  esac
+}
+
 fun bubbleSort (l) {
   fun inner (l) {
     case l of
@@ -24,4 +35,8 @@ fun generate (n) {
   if n then n : generate (n-1) else {} fi
 }
 
-bubbleSort (generate (10000))
+let sortedList = bubbleSort (generate (10000)) in
+  if checkSorted (sortedList)
+  then write(1)
+  else write(0)
+  fi
