@@ -45,7 +45,7 @@ public final class PolyglotLamaMain {
                     .in(in)
                     .out(out)
                     .option("engine.Compilation", "true")
-                    .option("engine.TraceCompilationDetails", "true")
+                    // .option("engine.TraceCompilationDetails", "true")
                     .option("engine.CompilationFailureAction", "Print")
                     .option("engine.CompileImmediately", "true")
                     .allowAllAccess(true)

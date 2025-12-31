@@ -13,7 +13,12 @@ varDef
 
 funParams
     : '(' ')' # EmptyParams
-    | '(' IDENT (',' IDENT)* ')' # Params
+    | '(' funParam (',' funParam)* ')' # Params
+    ;
+
+funParam
+    : IDENT # ParamIdent
+    | pattern # ParamPattern
     ;
 
 funBody
@@ -28,6 +33,8 @@ primary
     : NUM # Number
     | STRING # String
     | CHAR # Char
+    | 'true' # True
+    | 'false' # False
     | IDENT '(' (args+=expr (',' args+=expr)* ','?)? ')' # DirectCall
     | fn=primary '(' (args+=expr (',' args+=expr)* ','?)? ')' # IndirectCall
     | IDENT # Lookup
@@ -45,6 +52,8 @@ primary
     | '{' '}' # EmptyList
     | '{' items+=expr (',' items+=expr)+ '}' # ListCtor
     | 'fun' funParams funBody # InlineFn
+    | 'let' pattern '=' scrutinee=expr 'in' rest=expr # LetExpr
+    | 'eta' f=primary # Eta
     ;
 
 caseBranch
@@ -112,8 +121,8 @@ expr
 IDENT : [a-z][A-Za-z0-9_']* ;
 SIDENT : [A-Z][A-Za-z0-9_']* ;
 NUM : [0-9]+ ;
+COMMENT : '--' ~[\r\n]* -> skip ;
 WS : [ \t\r\n]+ -> skip ;
-COMMENT : '--' [^\n]* -> skip ;
 MULTILINE_COMMENT : '(*' .*? '*)' -> skip ;
 OP : [+\-*/%<=>!&:]+ ;
 STRING : '"' ( ~'"' | '""' )* '"' ;
