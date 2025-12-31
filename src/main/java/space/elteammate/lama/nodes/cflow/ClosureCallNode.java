@@ -1,4 +1,4 @@
-package space.elteammate.lama.nodes.expr;
+package space.elteammate.lama.nodes.cflow;
 
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.nodes.ExplodeLoop;
@@ -11,7 +11,7 @@ public final class ClosureCallNode extends LamaNode {
     private LamaNode closure;
 
     @Children
-    private LamaNode[] callArguments;
+    public LamaNode[] callArguments;
 
     public ClosureCallNode(LamaNode closure, LamaNode[] callArguments) {
         this.closure = closure;

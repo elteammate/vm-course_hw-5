@@ -1,4 +1,4 @@
-package space.elteammate.lama.nodes.expr;
+package space.elteammate.lama.nodes.cflow;
 
 import com.oracle.truffle.api.CompilerDirectives;
 import com.oracle.truffle.api.frame.VirtualFrame;

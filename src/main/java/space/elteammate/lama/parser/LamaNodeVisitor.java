@@ -16,10 +16,7 @@ import space.elteammate.lama.nodes.builtin.LengthBuiltinNode;
 import space.elteammate.lama.nodes.builtin.ReadBuiltinNode;
 import space.elteammate.lama.nodes.builtin.StringBuiltinNode;
 import space.elteammate.lama.nodes.builtin.WriteBuiltinNode;
-import space.elteammate.lama.nodes.cflow.DoWhileNode;
-import space.elteammate.lama.nodes.cflow.ForLoopNode;
-import space.elteammate.lama.nodes.cflow.IfThenElseNode;
-import space.elteammate.lama.nodes.cflow.WhileDoNode;
+import space.elteammate.lama.nodes.cflow.*;
 import space.elteammate.lama.nodes.expr.*;
 import space.elteammate.lama.nodes.literal.*;
 import space.elteammate.lama.nodes.pattern.*;
@@ -28,10 +25,8 @@ import space.elteammate.lama.types.LamaCallTarget;
 import space.elteammate.lama.types.ModuleObject;
 import space.elteammate.lama.util.CachedSupplier;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -96,7 +91,9 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                 AtomicInteger numParams,
                 List<Scope> scopes,
                 List<LookupResult> captures,
-                AtomicInteger tempVarSlot,
+                // used if closure is optimized to function
+                List<IdNode> selfUsages,
+                List<IdNode> selfCalls,
                 FrameDescriptor.Builder desc
         ) {
             Frame() {
@@ -104,7 +101,8 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                         new AtomicInteger(0),
                         new ArrayList<>(),
                         new ArrayList<>(),
-                        new AtomicInteger(-1),
+                        new ArrayList<>(),
+                        new ArrayList<>(),
                         FrameDescriptor.newBuilder()
                 );
             }
@@ -458,6 +456,25 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                         ctx
                 );
             }
+            case Telescope.LookupLazyClosure(var cl) when cl.get().captures.length == 0 -> {
+                int fnSlot = cl.get().fnSlot();
+                return parser.withSource(
+                        new DirectCallNode(
+                                fnSlot,
+                                functions.get(fnSlot),
+                                args.toArray(new LamaNode[0])
+                        ),
+                        ctx
+                );
+            }
+            case Telescope.LookupSelf ignoredSelf -> {
+                IdNode call = new IdNode(new ClosureCallNode(
+                        LoadSelfNodeGen.create(),
+                        args.toArray(new LamaNode[0])
+                ));
+                telescope.topFrame().selfCalls.add(call);
+                return parser.withSource(call, ctx);
+            }
             case null -> throw new ParsingException("Function " + fnName + " is not defined", source, ctx.start);
             default -> {
                 return parser.withSource(new ClosureCallNode(
@@ -481,9 +498,7 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
                     throw new ParsingException("Builtins can't be promoted to function objects", source, ctx.start);
             case Telescope.LookupFunction fn -> new ClosureNode(fn.fnSlot, functions.get(fn.fnSlot), new LamaNode[0]);
             case Telescope.LookupLazyClosure lazyCl -> {
-                telescope.pushScope(Telescope.ScopeType.LOCAL);
                 Telescope.LazyClosure cl = lazyCl.cl.get();
-                telescope.popScope();
                 yield new ClosureNode(
                     cl.fnSlot,
                     functions.get(cl.fnSlot),
@@ -496,7 +511,11 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             case Telescope.LookupLocal(var slot) -> LoadLocalNodeGen.create(slot);
             case Telescope.LookupArg(var slot) -> LoadArgNodeGen.create(slot);
             case Telescope.LookupCapture(var slot) -> LoadCaptureNodeGen.create(slot);
-            case Telescope.LookupSelf() -> LoadSelfNodeGen.create();
+            case Telescope.LookupSelf() -> {
+                IdNode node = new IdNode(LoadSelfNodeGen.create());
+                telescope.topFrame().selfUsages.add(node);
+                yield node;
+            }
             case null -> throw new ParsingException("Variable " + name + " is not defined", source, ctx.start);
         };
         return parser.withSource(load, ctx);
@@ -573,11 +592,26 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             telescope.addFunction(name, fnSlot);
         }
 
+        // flat set of all closure instantiations
+        List<Integer> inProcessing = new ArrayList<>();
+
+        // if true, this means that if we fail to convert closure to static function,
+        // we cannot proceed.
+        AtomicBoolean mustOptimize = new AtomicBoolean(false);
+
         Supplier<Telescope.LazyClosure> fnCtor = () -> {
             telescope.pushFrame();
             if (!isGlobal) {
                 telescope.addSelf(name);
+                if (inProcessing.contains(fnSlot) && inProcessing.size() > 1) {
+                    mustOptimize.set(true);
+                    return new Telescope.LazyClosure(
+                            new Telescope.LookupResult[0],
+                            fnSlot
+                    );
+                }
             }
+            inProcessing.add(fnSlot);
             Supplier<LamaNode> init = processFunParams(ctx.funParams());
             LamaNode body = visit(ctx.funBody().body);
             body = SeqNode.create(init.get(), body);
@@ -586,6 +620,25 @@ public final class LamaNodeVisitor extends LamaBaseVisitor<LamaNode> {
             LamaRootNode rootNode = new LamaRootNode(lang, body, frame.desc.build());
             LamaCallTarget fn = new LamaCallTarget(frame.numParams.get(), rootNode.getCallTarget());
             functions.set(fnSlot, fn);
+
+            boolean optimized = false;
+            if (frame.captures.isEmpty()) {
+                for (IdNode selfUsage : frame.selfUsages) {
+                    selfUsage.node = new ClosureNode(fnSlot, fn, new LamaNode[0]);
+                }
+                for (IdNode selfCall : frame.selfCalls) {
+                    ClosureCallNode call = (ClosureCallNode) selfCall.node;
+                    selfCall.node = new DirectCallNode(fnSlot, fn, call.callArguments);
+                }
+                optimized = true;
+            }
+
+            if (mustOptimize.get() && !optimized) {
+                throw new ParsingException(
+                        "Instantiating this closure will result in mutually recursive binding",
+                        source, ctx.start
+                );
+            }
 
             return new Telescope.LazyClosure(
                     frame.captures.toArray(Telescope.LookupResult[]::new),
